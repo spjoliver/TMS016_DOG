@@ -1,0 +1,25 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/anaconda
+{
+	"name": "TMS016 dev container",
+	"build": { 
+		"context": "..",
+		"dockerfile": "TMS016.dockerfile"
+	},
+	"customizations": {
+		"vscode": {
+		  "extensions": [
+			"ms-python.vscode-pylance",
+			"ms-toolsai.jupyter",
+			"ms-toolsai.jupyter-keymap",
+			"ms-toolsai.jupyter-renderers",
+			"ms-toolsai.vscode-jupyter-cell-tags",
+			"ms-toolsai.vscode-jupyter-slideshow"
+			]
+		}
+	  },
+	  "postCreateCommand": "pip install -r /workspaces/TMS016_DOG/requirements.txt",
+	  "runArgs": ["--name", "${localEnv:USER}_devcontainer_TMS016"]
+
+
+}

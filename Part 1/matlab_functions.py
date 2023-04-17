@@ -26,61 +26,6 @@ def emp_variogram(D, data, N):
         out['variogram'][i] = 0.5 * np.mean((data[I] - data[J])**2)
     return out
 
-"""
-def stencil2prec(sz, q):
-    II = []
-    KK = []
-    JJ_I = []
-    JJ_J = []
-    
-    I, J = np.meshgrid(np.arange(1, sz[0]+1), np.arange(1, sz[1]+1))
-    I = I.flatten()
-    J = J.flatten()
-    for i in range(q.shape[0]):
-        for j in range(q.shape[1]):
-            if q[i, j] != 0:
-                II.append(I + sz[0] * (J - 1))
-                JJ_I.append(I + i - (q.shape[0] + 1) / 2)
-                JJ_J.append(J + j - (q.shape[1] + 1) / 2)
-                KK.append(q[i, j] * np.ones(sz[0] * sz[1]))
-    JJ = np.array(JJ_I) + sz[0] * (np.array(JJ_J) - 1)
-    ok = (np.array(JJ_I) >= 1) & (np.array(JJ_I) <= sz[0]) & (np.array(JJ_J) >= 1) & (np.array(JJ_J) <= sz[1])
-    II = np.array(II)[ok]
-    JJ = JJ[ok]
-    KK = np.array(KK)[ok]
-    Q = sparse.coo_array((KK, (II, JJ)), shape=(sz[0] * sz[1], sz[0] * sz[1]))
-    return Q
-"""
-
-def stencil2prec_old(sz, q):
-    II = []
-    KK = []
-    JJ_I = []
-    JJ_J = []
-    
-    I, J = np.meshgrid(np.arange(1, sz[0]+1), np.arange(1, sz[1]+1))
-    I = I.flatten()
-    J = J.flatten()
-    for i in range(q.shape[0]):
-        for j in range(q.shape[1]):
-            if q[i, j] != 0:
-                II.append(I + sz[0] * (J - 1))
-                JJ_I.append(I + i - (q.shape[0] + 1) // 2)
-                JJ_J.append(J + j - (q.shape[1] + 1) // 2)
-                KK.append(q[i, j] * np.ones(sz[0] * sz[1]))
-    #JJ_I = np.array(JJ_I) - 1  # subtract 1 from JJ_I
-    #JJ_J = np.array(JJ_J) - 1  # subtract 1 from JJ_J
-    JJ = np.array(JJ_I) + sz[0] * (np.array(JJ_J) - 1)
-    ok = (np.array(JJ_I) >= 1) & (np.array(JJ_I) < sz[0]) & (np.array(JJ_J) >= 1) & (np.array(JJ_J) < sz[1])
-    II = np.array(II)[ok]
-    JJ = JJ[ok]
-    KK = np.array(KK)[ok]
-    Q = sparse.coo_matrix((KK, (II, JJ)), shape=(sz[0] * sz[1], sz[0] * sz[1]))
-    Q = Q.tocsc()  # convert to CSC format
-    return Q
-
-
-
 def stencil2prec(sz, q):
     II = []
     KK = []
@@ -261,7 +206,6 @@ def select_covariance(cov,fixed):
         if sigma_fixed == 0 and kappa_fixed == 0 and nu_fixed == 0:
             covf = lambda d,x: matern_covariance(d,x[0],x[1],x[2])
         elif sigma_fixed == 1 and kappa_fixed == 0 and nu_fixed == 0:
-            # help me complete this function
             covf = lambda d,x: matern_covariance(d,fixed['sigma'],x[1],x[2])
         elif sigma_fixed == 0 and kappa_fixed == 1 and nu_fixed == 0:
             covf = lambda d,x: matern_covariance(d,x[0],fixed['kappa'],x[2])
@@ -446,16 +390,6 @@ def cov_ls_est(e, cov, variogram, fixed=None):
     
     return pars
 
-
-def sparse_cholesky(A): # The input matrix A must be a sparse symmetric positive-definite.
-  
-  n = A.shape[0]
-  LU = splinalg.splu(A,diag_pivot_thresh=0) # sparse LU decomposition
-  
-  if ( LU.perm_r == np.arange(n) ).all() and ( LU.U.diagonal() > 0 ).all(): # check the matrix A is positive definite.
-    return LU.L.dot( sparse.diags(LU.U.diagonal()**0.5) )
-  else:
-    sys.exit('The matrix is not positive definite')
 
 # matlab standard colormap
 cm_data = [[0.2081, 0.1663, 0.5292], [0.2116238095, 0.1897809524, 0.5776761905], 

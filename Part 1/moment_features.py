@@ -2,14 +2,16 @@ import numpy as np
 from typing import Union
 
 
-def generate_moments(img: np.ndarray, moment_choice: Union[list, None], p_to: int=5, q_to: int=5) -> np.ndarray:
+def generate_moments(img: np.ndarray, moment_choice: Union[list, None]=None, p_to: int=5, q_to: int=5) -> np.ndarray:
 
     row_index_matrix = np.repeat(np.arange(img.shape[0])[:, np.newaxis], axis=1, repeats=img.shape[1])
     col_index_matrix = np.repeat(np.arange(img.shape[1])[np.newaxis, :].T, axis=1, repeats=img.shape[0]).T
 
+    #col_index_matrix, row_index_matrix = np.meshgrid(np.arange(img.shape[0]), np.arange(img.shape[1]))
+
     moments = []
     if moment_choice is not None:
-        for p, q in moments:
+        for p, q in moment_choice:
             moments.append(((row_index_matrix**p)*(col_index_matrix**q)*img).sum())
     else:
         for p in range(p_to):
@@ -18,7 +20,10 @@ def generate_moments(img: np.ndarray, moment_choice: Union[list, None], p_to: in
     
     return np.array(moments)
 
-def generate_central_moments(img: np.ndarray, moment_choice: Union[list, None], p_to: int=5, q_to: int=5) -> np.ndarray:
+def generate_central_moments(img: np.ndarray, moment_choice: Union[list, None]=None, p_to: int=5, q_to: int=5) -> np.ndarray:
+    """
+    Translation invariant moments
+    """
 
     centroid_moments = generate_moments(
         img, 
@@ -30,9 +35,11 @@ def generate_central_moments(img: np.ndarray, moment_choice: Union[list, None], 
     row_index_matrix = np.repeat(np.arange(img.shape[0])[:, np.newaxis], axis=1, repeats=img.shape[1]) - x_bar
     col_index_matrix = np.repeat(np.arange(img.shape[1])[np.newaxis, :].T, axis=1, repeats=img.shape[0]).T - y_bar
 
+    #col_index_matrix, row_index_matrix = np.meshgrid(np.arange(img.shape[0]) - x_bar, np.arange(img.shape[1]) - y_bar)
+
     moments = []
     if moment_choice is not None:
-        for p, q in moments:
+        for p, q in moment_choice:
             moments.append(((row_index_matrix**p)*(col_index_matrix**q)*img).sum())
     else:
         for p in range(p_to):
@@ -42,16 +49,40 @@ def generate_central_moments(img: np.ndarray, moment_choice: Union[list, None], 
     return np.array(moments)
 
 
-def generate_hu_moments(img: np.ndarray) -> np.ndarray:
+def generate_scaled_central_moments(img: np.ndarray, moment_choice: Union[list, None]=None, p_to: int=5, q_to: int=5) -> np.ndarray:
+    """
+    Translation and scale invariant moments
+    """
 
     central_moments = generate_central_moments(
         img, 
-        p_to=3,
-        q_to=3
-        ).reshape(3, 3)
-    scm = np.zeros((3, 3))
-    for p in range(3):
-        for q in range(3):
+        moment_choice=moment_choice,
+        p_to=p_to,
+        q_to=q_to
+        ).reshape(p_to, q_to)
+    scm = np.zeros((p_to, q_to))
+    for p in range(p_to):
+        q_start = 0 if p >= 2 else 2 - p
+        for q in range(q_start, q_to):
+            scm[p, q] = central_moments[p, q] / (central_moments[0, 0]**(1 + ((p + q) / 2)))
+    
+    return scm.reshape(-1)
+
+
+def generate_hu_moments(img: np.ndarray) -> np.ndarray:
+
+    """
+    Hu moments are translation, scale and rotation invariant
+    """
+
+    central_moments = generate_central_moments(
+        img, 
+        p_to=4,
+        q_to=4
+        ).reshape(4, 4)
+    scm = np.zeros((4, 4))
+    for p in range(4):
+        for q in range(4):
             scm[p, q] = central_moments[p, q] / (central_moments[0, 0]**(1 + ((p + q) / 2)))
     
     hu_moments = []

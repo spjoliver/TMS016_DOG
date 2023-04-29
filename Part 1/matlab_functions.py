@@ -6,6 +6,10 @@ import numpy as np
 from scipy.spatial.distance import squareform, pdist
 from matplotlib.colors import LinearSegmentedColormap
 from typing import Dict, Tuple, Optional, Union, Callable, List
+from sklearn.cluster import KMeans
+from scipy.stats import multivariate_normal
+from scipy.sparse import coo_matrix
+
 
 def emp_variogram(D: np.ndarray, data: np.ndarray, N: int) -> Dict[str, np.ndarray]:
     """
@@ -264,7 +268,7 @@ def select_covariance(cov,fixed):
     nu_fixed = 0
     theta_fixed = 0
     if fixed:
-        names = fixed.keys()
+        names = list(fixed.keys())
         for i in range(len(names)):
             if names[i] == 'sigma':
                 sigma_fixed = 1
@@ -340,7 +344,7 @@ def init_cov_est(cov, fixed, d_max, s2):
     p0 = np.zeros(n_pars)
     fixed_pars = np.zeros(n_pars)
     if fixed:
-        names = fixed.keys()
+        names = list(fixed.keys())
         for i in range(len(names)):
             if names[i] == 'sigma':
                 p0[0] = fixed[names[i]]
@@ -541,6 +545,318 @@ def cov_ls_est(
         pars[names[i]] = np.exp(res.x[i])
 
     return pars
+
+
+def normmix_kmeans(x, K, maxiter=300, verbose=0):
+    # Parse input parameters
+    if maxiter is None:
+        maxiter = 1
+
+    if verbose > 0:
+        kmeans = KMeans(n_clusters=K, max_iter=maxiter, verbose=1, init='k-means++')
+    else:
+        kmeans = KMeans(n_clusters=K, max_iter=maxiter, init='k-means++')
+
+    idx = kmeans.fit_predict(x)
+    pars = {'mu': [], 'Sigma': [], 'p': np.ones(K) / K}
+    n, d = x.shape
+    sigma2 = 0
+
+    for k in range(K):
+        pars['mu'].append(kmeans.cluster_centers_[k])
+        # so y is a vector of the differences between the x values of the cluster and the clusters centers
+        y = x[idx == k] - pars['mu'][k]
+        sigma2 += np.sum(y ** 2)
+
+    Sigma = sigma2 * np.eye(d) / (n * d)
+
+    for k in range(K):
+        pars['Sigma'].append(Sigma)
+
+    return idx, pars
+
+def normmix_posterior(x: np.ndarray, pars: Dict) -> np.ndarray:
+    """
+    Computes class probabilities for a Gaussian mixture model estimated using normmix_sgd.
+    
+    Parameters:
+    x (np.ndarray): n-by-d matrix with values to be classified
+    pars (Dict): result object obtained by running normmix_sgd
+    
+    Returns:
+    np.ndarray: The posterior class probabilities, n-by-K matrix
+    """
+
+    n, d = x.shape
+    K = len(pars["mu"])
+
+    # Calculate log-probabilities for each class
+    p = np.zeros((n, K))
+
+    for k in range(K):
+        y = (x.T - pars["mu"][k].reshape(-1, 1))
+        v = np.linalg.solve(pars["Sigma"][k], y)
+        v = np.sum(v * y, axis=0)
+        p[:, k] = -0.5 * v - 0.5 * np.log(np.linalg.det(pars["Sigma"][k])) - (d / 2) * np.log(2 * np.pi)
+
+    # Add prior information and transform to linear scale
+    p = p + np.log(pars["p"])
+    p = p - np.max(p, axis=1, keepdims=True)
+    p = np.exp(p)
+    p = p / np.sum(p, axis=1, keepdims=True)
+
+    return p
+
+
+def normmix_classify(x: np.ndarray, pars: Dict) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Classifies an image based on a Gaussian mixture model estimated using normmix_sgd.
+    
+    Parameters:
+    x (np.ndarray): n-by-d matrix with values to be classified
+    pars (Dict): result object obtained by running normmix_sgd
+    
+    Returns:
+    Tuple[np.ndarray, np.ndarray]: A tuple containing the classes for each pixel (n-by-1 vector) and the posterior class probabilities (n-by-K matrix)
+    """
+
+    p = normmix_posterior(x, pars)
+    cl = np.argmax(p, axis=1)
+
+    return cl, p
+
+
+
+def prior_o_alpha(prior_alpha, in_alpha):
+    """
+    Internal function that changes between parametrization [p_1, p_2, ...]
+    and [alpha_1, alpha_2, ...] where p_i = exp(alpha_i) / sum(exp(alpha_j))
+    alpha_1 = 0
+    """
+    
+    if in_alpha:
+        alpha = prior_alpha
+        prior = np.zeros(len(alpha))
+        sum_exp = np.sum(np.exp(alpha))
+        
+        for i in range(len(prior)):
+            prior[i] = np.exp(alpha[i]) / sum_exp
+        
+        prior_alpha = prior
+    else:
+        prior = prior_alpha
+        alpha = np.zeros(len(prior))
+        sum_exp = 1 / prior[0]
+        
+        for i in range(1, len(prior)):
+            alpha[i] = np.log(prior[i] * sum_exp)
+        
+        prior_alpha = alpha
+
+    return prior_alpha
+
+
+
+def duplicatematrix(n):
+    """
+    Creates the matrix D such that for a symmetric matrix one has
+    D * vech*(A) = vec(A)
+    where vech*(A) = [a_11 a_22 a_nn a_21 a 31 ... a_n-1n]
+    thus first the diagonal entries, then the lower triangular entries
+    column stacked
+    """
+
+    I = np.eye(n, dtype=bool)
+    I2 = np.tril(np.ones((n, n), dtype=bool), -1)
+    I3 = np.triu(np.ones((n, n), dtype=bool), 1)
+    n_I = n
+    n_I2 = n * (n - 1) // 2
+
+    rows = np.hstack([I.ravel(), I2.ravel(), I3.ravel()])
+    cols = np.hstack([np.arange(n_I), n_I + np.arange(n_I2), n_I + np.arange(n_I2)])
+    data = np.ones(rows.size)
+
+    D = coo_matrix((data, (rows, cols)), shape=(n * n, n_I + n_I2))
+
+    return D
+
+def gradient_alpha(alpha, p):
+    """
+    Computes the gradient and search direction of the probabilities using the
+    transformation p_i = exp(\alpha_i) / sum (exp(\alpha_j))
+    """
+    
+    g = np.zeros(alpha.shape)
+    H = np.eye(len(alpha))
+    sum_exp = np.sum(np.exp(alpha))
+    p_sum = np.sum(p, axis=0)
+    n = p.shape[0]
+    g[1:] = p_sum[1:]
+    g[1:] = g[1:] - n * np.exp(alpha[1:]) / sum_exp
+    H[1:, 1:] = -n * np.diag(np.exp(alpha[1:]) / sum_exp)
+    H[1:, 1:] = H[1:, 1:] + n * np.outer(np.exp(alpha[1:]), np.exp(alpha[1:])) / sum_exp ** 2
+    p = -np.linalg.solve(H, g)
+    g = g / n
+
+    return g, p
+
+def normmix_gradient(pars, y, P):
+    """
+    Calculates the gradients of the likelihood of a Gaussian mixture model.
+    pars is a dictionary with the parameters of the model:
+        pars['mu']: a list with the mean values for each class.
+        pars['Sigma']: a list with the covariance matrices for each class.
+        pars['p']: a list with the class probabilities.
+    y is an n x d matrix with the data, and P are the posterior class probabilities.
+    """
+    
+    K = len(pars['mu'])
+    n, d = y.shape
+
+    D = duplicatematrix(d)
+
+    step = {'mu': [None] * K, 'Sigma': [None] * K, 'alpha': np.zeros(K)}
+    grad = {'mu': [None] * K, 'Sigma': [None] * K, 'alpha': np.zeros(K)}
+
+    for k in range(K):
+        Qk = np.linalg.inv(pars['Sigma'][k])
+        z_k = P[:, k]
+        yc = y - pars['mu'][k]
+        Syc = yc @ Qk
+        dmu = np.sum(z_k[:, np.newaxis] * Syc, axis=0)
+        sum_z_k = np.sum(z_k)
+        ddmu = -sum_z_k * Qk
+
+        Syc_z = z_k[:, np.newaxis] * Syc
+        dSigma = (Syc_z.T @ Syc) / 2
+        dSigma = D.T @ dSigma.ravel()
+        dSigma = dSigma - sum_z_k * D.T @ Qk.ravel() / 2
+        ddSigma = -(sum_z_k / 2) * D.T @ np.kron(Qk, Qk) @ D
+
+        dmuSigma = Qk @ (np.kron(np.sum(Syc_z, axis=0), np.eye(d)) @ D)
+
+        H = np.block([[ddmu, dmuSigma], [dmuSigma.T, ddSigma]])
+        H = (H + H.T) / 2
+        e = np.sort(np.linalg.eigvalsh(H))
+        b = 1e-12
+        if e[-1] / e[0] < b:
+            H = H + np.eye(H.shape[0]) * (b * e[0] - e[-1]) / (1 - b)
+
+        grad['mu'][k] = dmu / n
+        grad['Sigma'][k] = (D @ dSigma).reshape(d, d) / n
+        g_temp = np.concatenate([dmu, dSigma])
+        p_temp = -np.linalg.solve(H, g_temp)
+        step['mu'][k] = p_temp[:d]
+        step['Sigma'][k] = (D @ p_temp[d:]).reshape(d, d)
+
+    alpha = prior_o_alpha(pars['p'], 0)
+    g_temp, p_temp = gradient_alpha(alpha, P)
+    step['alpha'] = p_temp
+    grad['alpha'] = g_temp
+
+    return step, grad
+
+
+def normmix_loglike(x, pars):
+    """
+    Compute class probabilities for a Gaussian mixture model.
+    
+    Input:
+    x: n-by-d matrix
+    pars: A dictionary with keys 'mu', 'Sigma', and 'p'.
+        pars['mu'][k]: 1-by-d matrix, class expected value.
+        pars['Sigma'][k]: d-by-d matrix, class covariance.
+        pars['p']: 1-by-K matrix with the class probabilities.
+        
+    Output:
+    p: The posterior class probabilities, n-by-K matrix.
+    """
+    n, d = x.shape
+    K = len(pars['mu'])
+
+    # calculate log-probabilities for each class
+    p = np.zeros(n)
+
+    for k in range(K):
+        p += pars['p'][k] * multivariate_normal.pdf(x, mean=pars['mu'][k], cov=pars['Sigma'][k])
+        
+    ll = np.sum(np.log(p))
+    
+    return p, ll
+
+
+def vech(m):
+    """
+    h = vech(m)
+    h is the column vector of elements on or below the main diagonal of m.
+    m must be square.
+    """
+    rows, cols = m.shape
+    r = np.repeat(np.arange(1, rows + 1)[:, np.newaxis], cols, axis=1)
+    c = np.repeat(np.arange(1, cols + 1)[np.newaxis, :], rows, axis=0)
+    
+    # c <= r is same as np.tril(np.ones(m.shape))
+    h = m[c <= r]
+    
+    return h
+
+
+def normmix_sgd(x: np.ndarray, K: int, Niter: Optional[int] = 100, step0: Optional[float] = 1, plotflag: Optional[int] = 0) -> Tuple[Dict, Dict]:
+    """
+    Uses gradient-descent optimization to estimate a Gaussian mixture model.
+    
+    Parameters:
+    x (np.ndarray): n-by-d matrix (column-stacked image with n pixels)
+    K (int): number of classes
+    Niter (int): number of iterations to run the algorithm
+    step0 (float): the initial step size
+    plotflag (int): if 1, then parameter tracks are plotted
+    
+    Returns:
+    Tuple[Dict, Dict]: A tuple containing the estimated parameters and the parameter trajectories
+    """
+    
+    # Note: You will need to implement the following functions: normmix_kmeans, normmix_posterior, normmix_gradient, prior_o_alpha, and normmix_loglike
+    # These functions have not been provided in this code snippet
+
+    n, d = x.shape
+
+    # Obtain some reasonable starting values using K-means
+    idx, pars = normmix_kmeans(x, K, Niter)
+
+
+    for i in range(Niter):
+        # Compute posterior probabilities
+        p_tmp = normmix_posterior(x, pars)
+
+        # Compute gradients
+        step, grad = normmix_gradient(pars, x, p_tmp)
+
+        # Take step
+        gamma = step0
+        for k in range(K):
+            pars['Sigma'][k] = pars['Sigma'][k] + gamma * step['Sigma'][k]
+            pars['Sigma'][k] = (pars['Sigma'][k] + pars['Sigma'][k].T) / 2  # Make sure symmetric
+            pars['mu'][k] = pars['mu'][k] + gamma * step['mu'][k]
+
+        alpha = prior_o_alpha(pars['p'], 0)
+        alpha = alpha + gamma * step['alpha']
+        pars['p'] = prior_o_alpha(alpha, 1).T
+
+
+
+    return pars
+
+
+
+
+
+
+
+
+
+
+
 
 
 # matlab standard colormap

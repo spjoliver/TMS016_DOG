@@ -655,9 +655,26 @@ def prior_o_alpha(prior_alpha, in_alpha):
 
     return prior_alpha
 
-
-
 def duplicatematrix(n):
+    """
+    Creates the matrix D such that for a symmetric matrix one has
+    D * vech*(A) = vec(A)
+    where vech*(A) = [a_11 a_22 a_nn a_21 a 31 ... a_n-1n]
+    thus first the diagonal entries, then the lower triangular entries
+    column stacked
+    """
+    I = np.where(np.eye(n))
+    I2 = np.where(np.tril(np.ones((n, n)), -1))
+    I3 = np.where(np.triu(np.ones((n, n)), 1))
+    n_I = n
+    n_I2 = n * (n - 1) // 2
+    rows = np.hstack([I[0], I2[0], I3[1]])
+    cols = np.hstack([np.arange(n_I), n_I + np.arange(n_I2), n_I + np.arange(n_I2)])
+    data = np.ones(rows.size)
+    D = coo_matrix((data, (rows, cols)), shape=(n * n, n_I + n_I2))
+    return D
+
+def duplicatematrix_old(n):
     """
     Creates the matrix D such that for a symmetric matrix one has
     D * vech*(A) = vec(A)

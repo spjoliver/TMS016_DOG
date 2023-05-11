@@ -9,6 +9,7 @@ from typing import Dict, Tuple, Optional, Union, Callable, List
 from sklearn.cluster import KMeans
 from scipy.stats import multivariate_normal
 from scipy.sparse import coo_matrix
+from sklearn.metrics.pairwise import pairwise_distances
 
 
 def emp_variogram(D: np.ndarray, data: np.ndarray, N: int) -> Dict[str, np.ndarray]:
@@ -33,6 +34,10 @@ def emp_variogram(D: np.ndarray, data: np.ndarray, N: int) -> Dict[str, np.ndarr
     # Ensure that D is a square matrix. If not, convert it using pdist and squareform from scipy.
     if D.shape[0] != D.shape[1]:
         D = squareform(pdist(D))
+        #print(D.shape)
+        #D = pairwise_distances(D, n_jobs=-1)
+        #print(D.shape)
+        
     
     max_dist = D.max()
     
@@ -96,9 +101,10 @@ def stencil2prec(sz: Tuple[int, int], q: np.ndarray) -> sparse.csc_matrix:
     II = np.concatenate(II)
     JJ_I = np.concatenate(JJ_I)
     JJ_J = np.concatenate(JJ_J)
-    KK = np.concatenate(KK)
+    KK = np.concatenate(KK)[:, 0]
     JJ = JJ_I + sz[0] * (JJ_J - 1)
 
+    
     # Filter out indices that are out of bounds.
     ok = (JJ_I >= 1) & (JJ_I <= sz[0]) & (JJ_J >= 1) & (JJ_J <= sz[1])
 
@@ -476,7 +482,6 @@ def cov_ml_est(
     return pars
 
 def WLS_loss(p, variogram, fixed, covf, names):
-    
     #compute variogram
     if names[-1] == 'sigma_e': # nugget not fixed
         r = covf(variogram['h'], np.exp(p[:-1]))

@@ -325,8 +325,9 @@ def run_reconstruction(
         plt.plot(opt_eval_k[sorted_k], opt_eval_mse[sorted_k])
         # plot vertical line at optimal kappa
         plt.axvline(x=optimal_kappa.x[0], color="red", linestyle="--")
+        plt.axvline(x=lse_estimates["kappa"], color="red", linestyle="--")
         # add a legend
-        plt.legend(["MSE", "Optimal kappa"])
+        plt.legend(["MSE", "Optimal kappa", "LSE estimate kappa"])
         plt.xlabel("kappa")
         plt.ylabel("MSE")
         plt.title("MSE as a function of kappa")

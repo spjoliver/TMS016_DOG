@@ -908,7 +908,121 @@ def normmix_sgd(x: np.ndarray, K: int, Niter: Optional[int] = 100, step0: Option
     return pars
 
 
+import numpy as np
+import scipy.sparse as sp
+from scipy.special import softmax
+import matplotlib.pyplot as plt
+from skimage.color import label2rgb
 
+def mrf_sim(z0, N, alpha, beta, nsim=100, plotflag=0):
+
+    m, n, K = z0.shape
+
+    if m == 1 or n == 1 or K == 1:
+        raise ValueError('z0 should be an mxnxK matrix.')
+
+    W, a, b = build_W(N, [m, n])
+
+    if np.size(alpha) == 1:
+        alpha = alpha * np.ones([m * n, K])
+    elif np.size(alpha) == K:
+        alpha = np.tile(alpha, (m * n, 1))
+    else:
+        if alpha.shape != (m * n, K):
+            raise ValueError('Wrong size of alpha.')
+
+    if np.size(beta) == 1:
+        beta = beta * np.eye(K)
+    elif np.size(beta) == K:
+        beta = np.diag(beta)
+    elif beta.shape != (K, K):
+        raise ValueError('Wrong size of beta.')
+
+    ij_ = np.mgrid[0:a, 0:b].reshape(2, -1)
+    ijm = np.zeros((m * n, a * b), dtype=bool)
+    for k in range(a * b):
+        Ind = np.zeros((m, n), dtype=bool)
+        Ind[ij_[0, k]::a, ij_[1, k]::b] = True
+        ijm[:, k] = Ind.flatten()
+
+    Wij = [W[ijm[:, k], :] for k in range(a * b)]
+    alphaij = [alpha[ijm[:, k], :] for k in range(a * b)]
+    KKij = [np.repeat(np.arange(K)[None, :], sum(ijm[:, k]), axis=0) for k in range(a * b)]
+    Mzc = [np.zeros((sum(ijm[:, k]), K)) for k in range(a * b)]
+
+    z = z0.reshape([m * n, K])
+    if plotflag > 0:
+        ll = np.zeros(nsim + 1)
+        f = W @ z
+        ll[0] = np.sum(z * alpha + 0.5 * (f * z) @ beta)
+
+    for i in range(nsim):
+        if plotflag > 0:
+            z_im = z.reshape([m, n, K])
+            y = label2rgb(np.argmax(z_im, axis=-1))
+            if plotflag == 1:
+                plt.imshow(y)
+            else:
+                plt.subplot(211)
+                plt.imshow(y)
+                plt.subplot(212)
+                plt.plot(ll[:max(i, 1)])
+            plt.show()
+
+        for k in np.random.permutation(a * b):
+            f = Wij[k] @ z
+            Mz_cond = alphaij[k] + f @ beta
+            Mz_cond = softmax(Mz_cond, axis=1)
+            Mzc[k] += Mz_cond
+
+            e = np.random.rand(ijm[:, k].sum(), 1)
+            x = np.sum(np.cumsum(Mz_cond, axis=1) < e, axis=1)
+            z[ijm[:, k], :] = (x[:, None] == KKij[k]) * 1
+        if plotflag > 1:
+            f = W @ z
+            ll[i + 1] = np.sum(z * alpha + 0.5 * (f * z) @ beta)
+
+    Mz = np.zeros([m * n, K])
+    for k in range(a * b):
+        Mz[ijm[:, k], :] = Mzc[k]
+    Mz /= nsim
+    Mz = Mz.reshape([m, n, K])
+    z = z.reshape([m, n, K])
+
+    return z, Mz, ll
+
+
+def build_W(N, sz):
+    if not np.all(N == np.rot90(N, 2)):
+        raise ValueError('The neighbourhood must have reflective symmetry.')
+    a, b = N.shape
+    if (a % 2 != 1) or (b % 2 != 1):
+        raise ValueError('The neighbourhood must have odd width and height.')
+    a = a // 2
+    b = b // 2
+    if N[a, b] != 0:
+        raise ValueError('The pixel cannot be neighbor with itself.')
+
+    II = []
+    JJ_I = []
+    JJ_J = []
+    KK = []
+
+    I, J = np.mgrid[0:sz[0], 0:sz[1]]
+    for i in range(N.shape[0]):
+        for j in range(N.shape[1]):
+            if N[i, j] != 0:
+                II.append(I + sz[0] * J)
+                JJ_I.append(I + i - (N.shape[0]) // 2)
+                JJ_J.append(J + j - (N.shape[1]) // 2)
+                KK.append(N[i, j] * np.ones(sz[0] * sz[1]))
+    JJ = JJ_I + sz[0] * np.array(JJ_J)
+    ok = np.logical_and.reduce((np.array(JJ_I) >= 0, np.array(JJ_I) < sz[0], np.array(JJ_J) >= 0, np.array(JJ_J) < sz[1]))
+    II = np.array(II)[ok]
+    JJ = JJ[ok]
+    KK = np.array(KK)[ok]
+    W = sp.csr_matrix((KK, (II, JJ)), shape=(sz[0] * sz[1], sz[0] * sz[1]))
+    return W, a, b
 
 
 

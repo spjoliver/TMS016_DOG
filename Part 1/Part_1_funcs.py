@@ -206,7 +206,8 @@ def get_Q(
         #c, res = cg(Q, v)
         #c = spsolve(Q, v)
         plt.imshow(c.reshape([data_shape[0], data_shape[1]], order='F'))
-        plt.title("Covariance between the middle pixel and all other pixels")
+        plt.colorbar()
+        plt.title("Covariance between one pixel and all other pixels")
         plt.show()
     
     return Q, kappa
@@ -245,8 +246,11 @@ def reconstruct_data(
     x_rec = np.zeros((data_shape[0]*data_shape[1]))
     x_rec[ind_o] = observed_values
     x_rec[ind_m] = mu_m_o
-    x_seen = np.zeros((data_shape[0]*data_shape[1]))
-    x_seen[ind_o] = observed_values
+    x_seen = np.zeros((data_shape[0]*data_shape[1], 3))
+    x_seen[: , 1] = 0
+    x_seen[ind_o, 0] = observed_values
+    x_seen[ind_o, 1] = observed_values
+    x_seen[ind_o, 2] = observed_values
 
     MSE = np.mean((x_rec - data.ravel(order="F"))**2)
     if print_mse:
@@ -255,16 +259,19 @@ def reconstruct_data(
         print("-"*50)
     if plot_reconstruction:
 
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
 
-        ax1.imshow(x_seen.reshape([data_shape[0], data_shape[1]], order='F'), cmap="gray")
+        ax1.imshow(x_seen.reshape([data_shape[0], data_shape[1], 3], order='F'), interpolation="none")
         ax1.set_title("Observed data")
 
-        ax2.imshow(x_rec.reshape([data_shape[0], data_shape[1]], order='F'), cmap="gray")
+        ax2.imshow(x_rec.reshape([data_shape[0], data_shape[1]], order='F'), cmap="gray", interpolation="none")
         ax2.set_title("Reconstructed data")
 
-        ax3.imshow(data, cmap="gray")
+        ax3.imshow(data, cmap="gray", interpolation="none")
         ax3.set_title("Simulated/True data")
+
+        ax4.imshow(data - x_rec.reshape([data_shape[0], data_shape[1]], order='F'), cmap="gray", interpolation="none")
+        ax4.set_title("Real - Reconstructed")
         plt.show()
     
     return MSE
@@ -318,22 +325,30 @@ def run_reconstruction(
         optimal_kappa = minimize(fun=objective, x0=np.array(lse_estimates["kappa"]), method="Nelder-Mead", bounds=[(0, np.inf)]) #, bounds=[(0, np.inf)]
         print("-"*50)
         print(f"Optimal kappa: {optimal_kappa.x[0]}")
+
         print("-"*50)
         opt_eval_k = np.array(OPT_EVAL_K)
         opt_eval_mse = np.array(OPT_EVAL_MSE)
         sorted_k = np.argsort(opt_eval_k)
         plt.plot(opt_eval_k[sorted_k], opt_eval_mse[sorted_k])
         # plot vertical line at optimal kappa
-        plt.axvline(x=optimal_kappa.x[0], color="red", linestyle="--")
+        plt.axvline(x=optimal_kappa.x[0], color="green", linestyle="--", )
         plt.axvline(x=lse_estimates["kappa"], color="red", linestyle="--")
         # add a legend
-        plt.legend(["MSE", "Optimal kappa", "LSE estimate kappa"])
+        plt.legend(["MSE vs kappa", "Optimal kappa", "LSE estimate kappa"])
         plt.xlabel("kappa")
         plt.ylabel("MSE")
         plt.title("MSE as a function of kappa")
         plt.show()
+        print("#"*10, " "*5, "Reconstructing data with optimal kappa", " "*5, "#"*10)
         Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, optimal_kappa.x[0])
-        reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, optimal_kappa.x[0], plot_reconstruction)
+        MSE_opt = reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, optimal_kappa.x[0], plot_reconstruction)
+        print("#"*10, " "*5, "  Reconstructing data with LSE kappa  ", " "*5, "#"*10)
+        Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, lse_estimates["kappa"])
+        MSE_lse = reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, lse_estimates["kappa"], plot_reconstruction)
+        print("-"*50)
+        print(f"Optimal kappa improved MSE by: {(1 - MSE_opt/MSE_lse):.3f}%")
+        print("-"*50)
     else:
         Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, kappa_setting)
         reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, kappa, plot_reconstruction)

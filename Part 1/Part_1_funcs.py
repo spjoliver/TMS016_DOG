@@ -8,6 +8,9 @@ from scipy.optimize import minimize
 from time import perf_counter
 
 
+OPT_EVAL_K = []
+OPT_EVAL_MSE = []
+
 def data_setup(
         data: np.ndarray, 
         p: float, 
@@ -184,22 +187,24 @@ def get_Q(
     )
     q = (kappa**4)*q1 + 2*(kappa**2)*q2 + q3
     
-    print("Q is about to be calculated")
+    if show_mid_cov:
+        print("Q is about to be calculated")
     tstart = perf_counter()
     Q = tau * stencil2prec([data_shape[0], data_shape[1]], q)
-    print("Q was calculated in ", perf_counter() - tstart, " seconds")
-    print("Q is calculated")
-    if show_mid_cov and data_shape[0]*data_shape[1] < 90000:
+    if show_mid_cov:
+        print("Q was calculated in ", perf_counter() - tstart, " seconds")
+    if show_mid_cov:# and data_shape[0]*data_shape[1] < 90000:
         v = np.zeros(data_shape[0]*data_shape[1])
         v[(data_shape[0]*data_shape[1])//2 - 750] = 1
 
-        #c = spsolve(Q, v)
+        
         print("Covariance plot is about to be calculated")
         tstart = perf_counter()
-        c, res = cg(Q, v)
+        factor = cholesky_sparse(Q)
+        c = factor(v)
         print("Covariance plot was calculated in ", perf_counter() - tstart, " seconds")
-        
-        print("Sparse cg res (covariance plot): ", res)
+        #c, res = cg(Q, v)
+        #c = spsolve(Q, v)
         plt.imshow(c.reshape([data_shape[0], data_shape[1]], order='F'))
         plt.title("Covariance between the middle pixel and all other pixels")
         plt.show()
@@ -226,14 +231,16 @@ def reconstruct_data(
     data_shape = data.shape
 
     #mu_m_o = mu_m - spsolve(Q_m, Q_om.T @ (x_obs - mu_o))
-    print("Kriging is about to be calculated")
+    if print_mse:
+        print("Kriging is about to be calculated")
     tstart = perf_counter()
     #mu_m_o = mu_m - spsolve(Q[ind_m, :][:, ind_m], Q[ind_m, :][:, ind_o] @ (observed_values - mu_o))
-    res = cg(Q[ind_m, :][:, ind_m], Q[ind_m, :][:, ind_o] @ (observed_values - mu_o))
+    res = cg(Q[ind_m, :][:, ind_m], Q[ind_m, :][:, ind_o].dot(observed_values - mu_o))
     mu_m_o = mu_m - res[0]
-    print("Kriging was calculated in ", perf_counter() - tstart, " seconds")
-    print("Sparse cg res (kriging): ", res[1])
-    print("Kriging is calculated")
+    if print_mse:
+        print("Kriging was calculated in ", perf_counter() - tstart, " seconds")
+        print("cg method returned 'true' result: ", True if res[1] == 0 else False)
+    
 
     x_rec = np.zeros((data_shape[0]*data_shape[1]))
     x_rec[ind_o] = observed_values
@@ -263,10 +270,12 @@ def reconstruct_data(
     return MSE
 
 def minimize_mse(kappa, index_o, index_m, mu_m, mu_o, observed_values, data, lse_est):
+    global OPT_EVAL_K
+    global OPT_EVAL_MSE
 
     Q = get_Q(lse_est, data.shape, show_mid_cov=False, kappa_setting=kappa)[0]
 
-    return reconstruct_data(
+    MSE =  reconstruct_data(
         index_o, 
         index_m, 
         mu_m, 
@@ -278,6 +287,9 @@ def minimize_mse(kappa, index_o, index_m, mu_m, mu_o, observed_values, data, lse
         plot_reconstruction=False, 
         print_mse=False
         )
+    OPT_EVAL_K.append(kappa[0])
+    OPT_EVAL_MSE.append(MSE)
+    return MSE
 
 def run_reconstruction(
         data: np.ndarray, 
@@ -295,11 +307,30 @@ def run_reconstruction(
     covariates_o_used, observed_values_used, loc_o_used, observed_values, covariates_o, covariates_m, index_o, index_m = data_setup(data, p, uo)
     lse, e, mu_o, mu_m = lse_regparam_est(covariates_o_used, covariates_o, covariates_m, observed_values_used)
     emp_v = get_emp_var(loc_o_used, e)
-    lse_estimates= estimate_var_params(emp_v, e, nu_fixed)
+    lse_estimates = estimate_var_params(emp_v, e, nu_fixed)
     if find_min_kappa:
+        global OPT_EVAL_K
+        global OPT_EVAL_MSE
+        OPT_EVAL_K = []
+        OPT_EVAL_MSE = []
+        
         objective = lambda kappa: minimize_mse(kappa, index_o, index_m, mu_m, mu_o, observed_values, data, lse_estimates)
-        optimal_kappa = minimize(fun=objective, x0=np.array(0.5), method="Nelder-Mead") #, bounds=[(0, np.inf)]
+        optimal_kappa = minimize(fun=objective, x0=np.array(lse_estimates["kappa"]), method="Nelder-Mead", bounds=[(0, np.inf)]) #, bounds=[(0, np.inf)]
+        print("-"*50)
         print(f"Optimal kappa: {optimal_kappa.x[0]}")
+        print("-"*50)
+        opt_eval_k = np.array(OPT_EVAL_K)
+        opt_eval_mse = np.array(OPT_EVAL_MSE)
+        sorted_k = np.argsort(opt_eval_k)
+        plt.plot(opt_eval_k[sorted_k], opt_eval_mse[sorted_k])
+        # plot vertical line at optimal kappa
+        plt.axvline(x=optimal_kappa.x[0], color="red", linestyle="--")
+        # add a legend
+        plt.legend(["MSE", "Optimal kappa"])
+        plt.xlabel("kappa")
+        plt.ylabel("MSE")
+        plt.title("MSE as a function of kappa")
+        plt.show()
         Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, optimal_kappa.x[0])
         reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, optimal_kappa.x[0], plot_reconstruction)
     else:

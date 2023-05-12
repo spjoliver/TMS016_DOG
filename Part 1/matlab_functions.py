@@ -114,6 +114,44 @@ def stencil2prec(sz: Tuple[int, int], q: np.ndarray) -> sparse.csc_matrix:
     # Convert the sparse matrix to the CSC format.
     return Q.tocsc()
 
+
+def stencil2prec_2(sz: Tuple[int, int], q: np.ndarray) -> sparse.csc_matrix:
+    # Initialization of empty lists for data, row, and column indices.
+    data = []
+    rows = []
+    cols = []
+
+    I, J = np.meshgrid(np.arange(1, 1 + sz[0]), np.arange(1, 1 + sz[1]), indexing='ij')
+    I = I.flatten()
+    J = J.flatten()
+
+    # Loop over the stencil matrix elements to compute data, row, and column indices.
+    for i in range(1, 1 + q.shape[0]):
+        for j in range(1, 1 + q.shape[1]):
+            if q[i - 1, j - 1] != 0:
+                JJ_I = I + i - int((q.shape[0] + 1) / 2)
+                JJ_J = J + j - int((q.shape[1] + 1) / 2)
+
+                # Check if indices are within bounds.
+                ok = (JJ_I >= 1) & (JJ_I <= sz[0]) & (JJ_J >= 1) & (JJ_J <= sz[1])
+                
+                # Only calculate II, JJ, and append to lists if indices are valid.
+                if np.any(ok):
+                    II = I + sz[0] * (J - 1)
+                    JJ = JJ_I + sz[0] * (JJ_J - 1)
+                    KK = q[i - 1, j - 1]
+
+                    # Append to the lists only the necessary elements.
+                    data.extend([KK] * np.sum(ok))  # We duplicate KK as many times as there are true values in 'ok'
+                    rows.extend(II[ok] - 1)
+                    cols.extend(JJ[ok] - 1)
+
+    # Create a sparse matrix in COO format using the filtered data.
+    Q = sparse.coo_matrix((data, (rows, cols)), shape=(np.prod(sz), np.prod(sz)))
+
+    # Convert the sparse matrix to the CSC format.
+    return Q.tocsc()
+
 def matern_covariance(h, sigma, kappa, nu):
     if nu <= 0:
         raise ValueError('nu must be postive')

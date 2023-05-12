@@ -189,7 +189,7 @@ def get_Q(
     Q = tau * stencil2prec([data_shape[0], data_shape[1]], q)
     print("Q was calculated in ", perf_counter() - tstart, " seconds")
     print("Q is calculated")
-    if show_mid_cov:# and data_shape[0]*data_shape[1] < 90000:
+    if show_mid_cov and data_shape[0]*data_shape[1] < 90000:
         v = np.zeros(data_shape[0]*data_shape[1])
         v[(data_shape[0]*data_shape[1])//2 - 750] = 1
 
@@ -229,9 +229,10 @@ def reconstruct_data(
     print("Kriging is about to be calculated")
     tstart = perf_counter()
     #mu_m_o = mu_m - spsolve(Q[ind_m, :][:, ind_m], Q[ind_m, :][:, ind_o] @ (observed_values - mu_o))
-    mu_m_o, res = mu_m - cg(Q[ind_m, :][:, ind_m], Q[ind_m, :][:, ind_o] @ (observed_values - mu_o))
+    res = cg(Q[ind_m, :][:, ind_m], Q[ind_m, :][:, ind_o] @ (observed_values - mu_o))
+    mu_m_o = mu_m - res[0]
     print("Kriging was calculated in ", perf_counter() - tstart, " seconds")
-    print("Sparse cg res (covariance plot): ", res)
+    print("Sparse cg res (kriging): ", res[1])
     print("Kriging is calculated")
 
     x_rec = np.zeros((data_shape[0]*data_shape[1]))

@@ -57,6 +57,10 @@ def emp_variogram(D: np.ndarray, data: np.ndarray, N: int) -> Dict[str, np.ndarr
     for i in range(N-1):
         I, J = np.where((d[i] < D) & (D <= d[i+1]))
         out['N'][i] = len(I)
+        # all pairs of data that are within the distance range for each iteration
+        # are used to calculate the variogram value for that iteration
+        # by calculating the mean of the squared differences of pairs of points/pixels
+        # that distance apart.
         out['variogram'][i] = 0.5 * np.mean((data[I] - data[J])**2)
     return out
 

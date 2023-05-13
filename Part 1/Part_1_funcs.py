@@ -6,6 +6,7 @@ from scipy.sparse.linalg import spsolve, cg
 from typing import Optional
 from scipy.optimize import minimize
 from time import perf_counter
+import os
 
 
 OPT_EVAL_K = []
@@ -77,6 +78,7 @@ def lse_regparam_est(
     mu_m = covariates_m @ lse
     e = observed_values_used - mu_ou
     mu_ou = None
+
     if print_est:
         print("Estimated regression parameters: ", lse)
     return lse, e, mu_o, mu_m
@@ -95,7 +97,9 @@ def estimate_var_params(
         emp_v: np.ndarray, 
         e: np.ndarray, 
         nu_fixed: bool = False, 
-        print_est: bool = True
+        print_est: bool = True,
+        save_folder: Optional[str] = None,
+        title_add: str=""
         ):
     """
     
@@ -115,21 +119,30 @@ def estimate_var_params(
     if print_est:
         print(f"Estimated variogram parameters (nu_fixed={nu_fixed}): ", lse_estimates)
     
-    plot_variogram(emp_v, mat_v_new)
+    plot_variogram(emp_v, mat_v_new, save_folder=save_folder, title_add=title_add)
     mat_v_new = None
 
     return lse_estimates
 
 def plot_variogram(
         emp_v: np.ndarray, 
-        mat_v_new: np.ndarray
+        mat_v_new: np.ndarray,
+        save_folder: Optional[str] = None,
+        title_add: str=""
         ):
 
     plt.rcParams['figure.figsize'] = [10, 7.5]
     plt.rcParams['figure.dpi'] = 100
     plt.plot(emp_v["h"], mat_v_new, color="orange")
-    plt.plot(emp_v["h"], emp_v["variogram"],'o')
-    plt.legend(["Estimated variogram", "Binned estimate"])
+    plt.plot(emp_v["h"], emp_v["variogram"],'o', markerfacecolor='none')
+    plt.xlabel("Distance")
+    plt.ylabel("Matern semivariogram")
+    plt.legend(["Matern LS est.", "empirical"])
+    if title_add != "":
+        plt.suptitle(title_add)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    if save_folder is not None:
+        plt.savefig(f"{save_folder}/Variogram.png", bbox_inches='tight')
     plt.show()
 
 
@@ -150,7 +163,10 @@ def get_Q(
         lse_est: dict, 
         data_shape: tuple, 
         show_mid_cov: bool = True,
-        kappa_setting: Optional[float] = None
+        kappa_setting: Optional[float] = None,
+        save_folder: Optional[str] = None,
+        title_add: str="",
+        opt_kappa: bool = False
         ):
 
     kappa = lse_est["kappa"] if kappa_setting is None else kappa_setting
@@ -207,7 +223,15 @@ def get_Q(
         #c = spsolve(Q, v)
         plt.imshow(c.reshape([data_shape[0], data_shape[1]], order='F'))
         plt.colorbar()
+        if title_add != "":
+            plt.suptitle(title_add)
         plt.title("Covariance between one pixel and all other pixels")
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        if save_folder is not None:
+            if opt_kappa:
+                plt.savefig(f"{save_folder}/Covariance_optimal_kappa.png", bbox_inches='tight')
+            else:
+                plt.savefig(f"{save_folder}/Covariance.png", bbox_inches='tight')
         plt.show()
     
     return Q, kappa
@@ -224,7 +248,10 @@ def reconstruct_data(
         data: np.ndarray,
         kappa: float,
         plot_reconstruction: bool = True,
-        print_mse: bool = True
+        print_mse: bool = True,
+        save_folder: Optional[str] = None,
+        title_add: str = "",
+        opt_kappa: bool = False
         ):
     """
     Reconstructs the data using the given Q, mu_o, mu_m, and observed values
@@ -259,8 +286,9 @@ def reconstruct_data(
         print("-"*50)
     if plot_reconstruction:
 
-        fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
-
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
+        if title_add != "":
+            fig.suptitle(title_add)
         ax1.imshow(x_seen.reshape([data_shape[0], data_shape[1], 3], order='F'), interpolation="none")
         ax1.set_title("Observed data")
 
@@ -268,10 +296,16 @@ def reconstruct_data(
         ax2.set_title("Reconstructed data")
 
         ax3.imshow(data, cmap="gray", interpolation="none")
-        ax3.set_title("Simulated/True data")
+        ax3.set_title("True data")
 
         ax4.imshow(data - x_rec.reshape([data_shape[0], data_shape[1]], order='F'), cmap="gray", interpolation="none")
         ax4.set_title("Real - Reconstructed")
+        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+        if save_folder is not None:
+            if opt_kappa:
+                fig.savefig(f"{save_folder}/Reconstruction_optimal_kappa.png", bbox_inches='tight')
+            else:
+                fig.savefig(f"{save_folder}/Reconstruction.png", bbox_inches='tight')
         plt.show()
     
     return MSE
@@ -306,15 +340,30 @@ def run_reconstruction(
         show_mid_cov: bool = True, 
         plot_reconstruction: bool = True,
         kappa_setting: Optional[float] = None,
-        find_min_kappa: Optional[bool] = False
+        find_min_kappa: Optional[bool] = False,
+        save_folder: Optional[str] = None,
+        title_add: str = ""
         ):
     """
     Runs the reconstruction process
     """
+    if save_folder is not None:
+        if not os.path.exists(save_folder):
+            os.makedirs(save_folder)
+        with open(f"{save_folder}/Information.txt", "w") as f:
+            f.write(f"p: {p}\n")
+            f.write(f"uo: {uo}\n")
+            f.write(f"nu_fixed: {nu_fixed}\n")
+            f.write(f"show_mid_cov: {show_mid_cov}\n")
+            f.write(f"plot_reconstruction: {plot_reconstruction}\n")
+            f.write(f"kappa_setting: {kappa_setting}\n")
+            f.write(f"find_min_kappa: {find_min_kappa}\n")
+            f.write(f"save_folder: {save_folder}\n")
+
     covariates_o_used, observed_values_used, loc_o_used, observed_values, covariates_o, covariates_m, index_o, index_m = data_setup(data, p, uo)
     lse, e, mu_o, mu_m = lse_regparam_est(covariates_o_used, covariates_o, covariates_m, observed_values_used)
     emp_v = get_emp_var(loc_o_used, e)
-    lse_estimates = estimate_var_params(emp_v, e, nu_fixed)
+    lse_estimates = estimate_var_params(emp_v, e, nu_fixed, save_folder=save_folder, title_add=title_add)
     if find_min_kappa:
         global OPT_EVAL_K
         global OPT_EVAL_MSE
@@ -331,6 +380,8 @@ def run_reconstruction(
         opt_eval_mse = np.array(OPT_EVAL_MSE)
         sorted_k = np.argsort(opt_eval_k)
         plt.plot(opt_eval_k[sorted_k], opt_eval_mse[sorted_k])
+        if title_add != "":
+            plt.suptitle(title_add)
         # plot vertical line at optimal kappa
         plt.axvline(x=optimal_kappa.x[0], color="green", linestyle="--", )
         plt.axvline(x=lse_estimates["kappa"], color="red", linestyle="--")
@@ -339,16 +390,63 @@ def run_reconstruction(
         plt.xlabel("kappa")
         plt.ylabel("MSE")
         plt.title("MSE as a function of kappa")
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        if save_folder is not None:
+            plt.savefig(f"{save_folder}/MSE_vs_kappa.png", bbox_inches='tight')
         plt.show()
         print("#"*10, " "*5, "Reconstructing data with optimal kappa", " "*5, "#"*10)
-        Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, optimal_kappa.x[0])
-        MSE_opt = reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, optimal_kappa.x[0], plot_reconstruction)
+        Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, optimal_kappa.x[0], save_folder=save_folder, title_add=title_add+"\nOptimal kappa", opt_kappa=True)
+        MSE_opt = reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, optimal_kappa.x[0], plot_reconstruction, save_folder=save_folder, title_add=title_add+"\nOptimal kappa", opt_kappa=True)
         print("#"*10, " "*5, "  Reconstructing data with LSE kappa  ", " "*5, "#"*10)
-        Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, lse_estimates["kappa"])
-        MSE_lse = reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, lse_estimates["kappa"], plot_reconstruction)
+        Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, lse_estimates["kappa"], save_folder=save_folder, title_add=title_add+"\nLSE kappa", opt_kappa=False)
+        MSE_lse = reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, lse_estimates["kappa"], plot_reconstruction, save_folder=save_folder, title_add=title_add+"\nLSE kappa", opt_kappa=False)
         print("-"*50)
         print(f"Optimal kappa improved MSE by: {(1 - MSE_opt/MSE_lse):.3f}%")
         print("-"*50)
+
+        if save_folder is not None:
+            with open(f"{save_folder}/Information.txt", "a") as f:
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("Regression parameters:\n")
+                f.write(f"beta0={lse[0]}\n")
+                f.write(f"beta1={lse[1]}\n")
+                f.write(f"beta2={lse[2]}\n")
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("LSE variogram parameter estimates:\n")
+                f.write(f"sigma={lse_estimates['sigma']}\n")
+                f.write(f"kappa={lse_estimates['kappa']}\n")
+                f.write(f"nu={lse_estimates['nu']}\n")
+                f.write(f"sigma_e={lse_estimates['sigma_e']}\n")
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("LSE kappa and corresponding MSE:\n")
+                f.write(f"kappa={lse_estimates['kappa']}\n")
+                f.write(f"MSE={MSE_lse}\n")
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("Optimal kappa and corresponding MSE:\n")
+                f.write(f"kappa={optimal_kappa.x[0]}\n")
+                f.write(f"MSE={MSE_opt}\n")
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("Optimal kappa improved MSE by:\n")
+                f.write(f"{(1 - MSE_opt/MSE_lse):.4f}%\n")
+
+            
     else:
-        Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, kappa_setting)
-        reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, kappa, plot_reconstruction)
+        Q, kappa = get_Q(lse_estimates, data.shape, show_mid_cov, kappa_setting, save_folder=save_folder, title_add=title_add, opt_kappa=False)
+        MSE = reconstruct_data(index_o, index_m, mu_m, mu_o, Q, observed_values, data, kappa, plot_reconstruction, save_folder=save_folder, title_add=title_add, opt_kappa=False)
+        if save_folder is not None:
+            with open(f"{save_folder}/Information.txt", "a") as f:
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("Regression parameters:\n")
+                f.write(f"beta0={lse[0]}\n")
+                f.write(f"beta1={lse[1]}\n")
+                f.write(f"beta2={lse[2]}\n")
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("LSE variogram parameter estimates:\n")
+                f.write(f"sigma={lse_estimates['sigma']}\n")
+                f.write(f"kappa={lse_estimates['kappa']}\n")
+                f.write(f"nu={lse_estimates['nu']}\n")
+                f.write(f"sigma_e={lse_estimates['sigma_e']}\n")
+                f.write("#"*50 + "\n" + "#"*50 + "\n")
+                f.write("LSE kappa and corresponding MSE:\n")
+                f.write(f"kappa={lse_estimates['kappa']}\n")
+                f.write(f"MSE={MSE}\n")

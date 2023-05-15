@@ -328,7 +328,7 @@ def FindPupileCenter(img: np.ndarray, top_index: Optional[tuple]=None) -> tuple:
         if max(top_index2[0] - data_length, 0) < 20:
             dist_bottom = left_datav.shape[0] - (np.median(np.argmax(bottom_conv[30:, :], axis=0)) + filter_size + 30)
         if False:
-        print("dist bottom: ", dist_bottom)
+            print("dist bottom: ", dist_bottom)
         ## This takes into account that the the vertical and horizontal radius should be the same
         # thus one can catch potential problems with the pupil detection and correct them, hopefully.
         if i == 1:

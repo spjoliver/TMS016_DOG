@@ -8,21 +8,35 @@ import skimage as skim
 
 
 def FastIrisPupilScanner(
-        img: str,
-    ):
+        filename: str,
+        plot_print: bool = False,
+    ) -> dict:
+    """
+
+    Returns:
+        dict: containing the following key-value pairs:
+            "iris_xy": tuple of x and y coordinates of the iris center
+            "iris_r": radius of the iris
+            "pupil_xy": tuple of x and y coordinates of the pupil center
+            "pupil_r": radius of the pupil
+            "iris": iris image, -1 values indicate pixels not identified as iris
+            "full_iris": boolean, True if the full iris could be extracted from the original image
+
+    """
     
     rvec = np.arange(46, 160, 1)
     sigma = 0.5
     filter_size = 5
 
-    img = cv2.imread(img, cv2.IMREAD_GRAYSCALE)[75:-75, 75:-75]
+    img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)[75:-75, 75:-75]
     img_shape = img.shape
     img_use = cv2.GaussianBlur(img, (filter_size, filter_size), 0)
     
     #edges = cv2.Canny(img_use, 20, 40), standard
-    edges = cv2.Canny(img_use, 45, 55)
-    plt.imshow(edges, cmap="gray")
-    plt.show()
+    edges = cv2.Canny(img_use, 42, 53)
+    if plot_print:
+        plt.imshow(edges, cmap="gray")
+        plt.show()
     
     hough_results = skim.transform.hough_circle(edges, rvec)
 
@@ -62,52 +76,114 @@ def FastIrisPupilScanner(
     r_estimate_iris = int(FindEdgeLoss(img, rmin=round(prmax*1.5), rmax=max(round(prmax*3), 290), sigma=sigma, lateral=True, x0=int(c), y0=int(r), return_radius=True))
     iris_xy, iris_r = FindEdge(img, rmin=int(r_estimate_iris) - 25, rmax=int(r_estimate_iris), search_radius=5, filter_size=filter_size, sigma=sigma, lateral=True, plot_=False, x0=int(c), y0=int(r))
 
-    fig, ax = plt.subplots()
-    ax.imshow(img, cmap="gray")
-    print("Estimated pupil radius: ", prmax)
-    ax.add_patch(plt.Circle((c, r), prmax, color="r", fill=False))
-    ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
-    plt.show()
-
-    if False:
-        rho = 1
-        theta = np.pi / 180
-        threshold = 200
-        min_line_length = edges.shape[0] - edges.shape[0] // 2
-        max_line_gap = 20
-        #lines = cv2.HoughLinesP(edges, rho, theta, threshold, np.array([]), min_line_length, max_line_gap)
-        lines = cv2.HoughLinesP(edges, rho, theta, threshold, np.array([]), min_line_length, max_line_gap)
-        for line in lines:
-            for x1, y1, x2, y2 in line:
-                plt.plot((y1, x1), (y2, x2), color="r")
-        
-
-    if False:
-        result = skim.transform.hough_ellipse(edges, accuracy=20, threshold=250,
-                        min_size=100, max_size=120)
-        result.sort(order='accumulator')
-        best = list(result[-1])
-        yc, xc, a, b = (int(round(x)) for x in best[1:5])
-        orientation = best[5]
-
-        # Draw the ellipse on the original image
-        cy, cx = skim.draw.ellipse_perimeter(yc, xc, a, b, orientation)
-        # Draw the edge (white) and the resulting ellipse (red)
-        edges = skim.color.gray2rgb(skim.img_as_ubyte(edges))
-        edges[cy, cx] = 1
-        plt.imshow(edges)
+    if plot_print:
+        fig, ax = plt.subplots()
+        ax.imshow(img, cmap="gray")
+        print("Estimated pupil radius: ", prmax)
+        ax.add_patch(plt.Circle((c, r), prmax, color="r", fill=False))
+        ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
         plt.show()
 
+    iris_xy_out = (iris_xy[1], iris_xy[0])
+    pupil_xy_out = (c, r)
+  
     # Search for lines, something similar can be done
     edges = cv2.Canny(img_use, 15, 20)
-    edges[max(r-prmax-60, 0):r+prmax+60, max(c-prmax-60, 0):c+prmax+60] = 0
+    edges[max(r-prmax-15, 0):r+prmax+15, max(c-prmax-15, 0):c+prmax+60] = 0
     edges[max(r-prmax-70, 0):r+prmax+70, max(c-prmax-70, 0):c+prmax+70] = cv2.GaussianBlur(edges[max(r-prmax-70, 0):r+prmax+70, max(c-prmax-70, 0):c+prmax+70], (5, 5), 0)
+    edges = cv2.GaussianBlur(edges, (5, 5), 0)
     edges = convolve2d(edges, np.ones((5, 5)), mode="same", fillvalue=0)
-    print(edges.shape)
-    print(edges.max())
-    print(edges.min())
-    plt.imshow(edges, cmap="gray")
-    plt.show()
+    edges[edges < edges.max()//2] = 0
+    edges[edges > 0] = 1
+    edges[max(r-prmax-100, 0):r+prmax+100, max(c-prmax-100, 0):c+prmax+100] = cv2.GaussianBlur(edges[max(r-prmax-100, 0):r+prmax+100, max(c-prmax-100, 0):c+prmax+100], (5, 5), 0)
+    struct_elem1 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (25, 25))
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, struct_elem1, iterations=1)
+    edges[edges < 1] = 0
+    struct_elem3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, struct_elem1, iterations=1)
+    edges[edges < 1] = 0
+    struct_elem2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (8, 8))
+    edges = cv2.dilate(edges, struct_elem2, iterations=8)
+    edges = cv2.erode(edges, struct_elem2, iterations=5)
+    edges[edges < 1] = 0
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, struct_elem1, iterations=1)
+    edges[edges < 1] = 0
+    edges = cv2.morphologyEx(edges, cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20, 20)), iterations=1)
+    edges[edges < 1] = 0
+    edges = cv2.morphologyEx(edges, cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)), iterations=1)
+    #edges = convolve2d(edges, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20, 20)), mode="same", fillvalue=0.5)
+    edges[edges < 1] = 0
+    edges = cv2.morphologyEx(edges, cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10, 10)), iterations=1)
+    edges[edges < 1] = 0
+    edges = cv2.morphologyEx(edges, cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=3)
+    edges[edges < 1] = 0
+    edges = cv2.dilate(edges, struct_elem2, iterations=3)
+    edges[edges < 1] = 0
+    edges = cv2.erode(edges, struct_elem2, iterations=2)
+    edges[edges < 1] = 0
+    edges = cv2.dilate(edges, struct_elem2, iterations=3)
+    edges[edges < 1] = 0
+    edges = cv2.erode(edges, struct_elem2, iterations=2)
+    edges[edges < 1] = 0
+    if plot_print:
+        plt.imshow(edges, cmap="gray")
+        plt.show()
+    iris_mask = skim.morphology.disk(iris_r)
+    pupile_mask = skim.morphology.disk(prmax)
+    
+    if r-prmax < 0:
+        pupile_mask = pupile_mask[-(r-prmax ):, :]
+    if c-iris_r < 0:
+        pupile_mask = pupile_mask[:, -(c-prmax ):]
+    if r+prmax  + 1 > edges.shape[0]:
+        pupile_mask = pupile_mask[:-(r+prmax  + 1 - edges.shape[0]), :]
+    if c+prmax  + 1 > edges.shape[1]:
+        pupile_mask = pupile_mask[:, :-(c+prmax  + 1 - edges.shape[1])]
+    
+    # pupil set to -1
+    img[r-prmax:r+prmax + 1, c-prmax:c+prmax + 1][pupile_mask.astype(bool)] = -1
+    full_iris = True
+    if iris_xy[0]-iris_r < 0:
+        iris_mask = iris_mask[-(iris_xy[0]-iris_r):, :]
+        iris_xy_out = (iris_xy_out[0] - (iris_xy[0]-iris_r), iris_xy_out[1])
+        pupil_xy_out = (pupil_xy_out[0] - (iris_xy[0]-iris_r), pupil_xy_out[1])
+        full_iris = False
+    if iris_xy[1]-iris_r < 0:
+        iris_mask = iris_mask[:, -(iris_xy[1]-iris_r):]
+        iris_xy_out = (iris_xy_out[0], iris_xy_out[1] - (iris_xy[1]-iris_r))
+        pupil_xy_out = (pupil_xy_out[0], pupil_xy_out[1] - (iris_xy[1]-iris_r))
+        full_iris = False
+
+    if iris_xy[0]+iris_r + 1 > edges.shape[0]:
+        iris_mask = iris_mask[:-(iris_xy[0]+iris_r + 1 - edges.shape[0]), :]
+        full_iris = False
+
+    if iris_xy[1]+iris_r + 1 > edges.shape[1]:
+        iris_mask = iris_mask[:, :-(iris_xy[1]+iris_r + 1 - edges.shape[1])]
+        full_iris = False
+    
+    edge_mask = edges[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1].astype(bool)#[skim.morphology.disk(iris_r)]
+    usefull_eye = img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]#[skim.morphology.disk(iris_r)]
+
+    # outside of iris set to -1
+    usefull_eye[iris_mask == 0] = -1
+
+    # edge_mask might have detected pixels not belonging to the iris, set them to -1
+    usefull_eye[edge_mask == True] = -1
+    if plot_print:
+        plt.imshow(usefull_eye, cmap="gray")
+        plt.plot(iris_xy_out[1], iris_xy_out[0], "r+")
+        plt.plot(pupil_xy_out[1], pupil_xy_out[0], "b+")
+        plt.show()
+    
+    return {
+        "iris": usefull_eye,
+        "iris_xy": iris_xy_out,
+        "pupil_xy": pupil_xy_out,
+        "iris_r": iris_r,
+        "pupil_r": prmax,
+        "full_iris": full_iris
+    }
     
 
 def circle_mask(r, xmax: int, ymax: int, x0r: int, y0r: int, lateral: bool=False) -> np.ndarray:
@@ -221,30 +297,37 @@ def FindPupileCenter(img: np.ndarray, top_index: Optional[tuple]=None) -> tuple:
         dist_right = np.median(np.argmax(right_conv, axis=1)) + filter_size
         if top_index2[1] + data_length > img.shape[1] - 20:
             dist_right = np.median(np.argmax(right_conv[:, :-30], axis=1)) + filter_size
-            print("dist right: ", dist_right)
-        print("dist right: ", dist_right)
+        
         left_conv = np.abs(np.diff(convolve2d(left_datah, gf, mode="valid"), axis=1))
-        plt.imshow(left_conv, cmap="gray")
-        plt.show()
+        if False:
+            print("dist right: ", dist_right)
+            plt.imshow(left_conv, cmap="gray")
+            plt.show()
+        
+       
         dist_left = left_datah.shape[1] - (np.median(np.argmax(left_conv, axis=1)) + filter_size)
         if max(top_index2[1] - data_length, 0) < 20:
             dist_left = left_datah.shape[1] - (np.median(np.argmax(left_conv[:, 30:], axis=1)) + filter_size + 30)
-            print("dist left: ", dist_left)
-        print("dist left: ", dist_left)
+
+        
         top_conv = np.abs(np.diff(convolve2d(right_datav, gf2, mode="valid"), axis=0))
-        plt.imshow(top_conv, cmap="gray")
-        plt.show()
+        if False:
+            print("dist left: ", dist_left)
+            plt.imshow(top_conv, cmap="gray")
+            plt.show()
         dist_top = np.median(np.argmax(top_conv, axis=0)) + filter_size
         if top_index2[0] + data_length > img.shape[0] - 20:
             dist_top = np.median(np.argmax(top_conv[:-30, :], axis=0)) + filter_size
-        print("dist top: ", dist_top)
+        
         bottom_conv = np.abs(np.diff(convolve2d(left_datav, gf2, mode="valid"), axis=0))
-        plt.imshow(bottom_conv, cmap="gray")
-        plt.show()
+        if False:
+            print("dist top: ", dist_top)
+            plt.imshow(bottom_conv, cmap="gray")
+            plt.show()
         dist_bottom = left_datav.shape[0] - (np.median(np.argmax(bottom_conv, axis=0)) + filter_size)
         if max(top_index2[0] - data_length, 0) < 20:
             dist_bottom = left_datav.shape[0] - (np.median(np.argmax(bottom_conv[30:, :], axis=0)) + filter_size + 30)
-        
+        if False:
         print("dist bottom: ", dist_bottom)
         ## This takes into account that the the vertical and horizontal radius should be the same
         # thus one can catch potential problems with the pupil detection and correct them, hopefully.
@@ -296,12 +379,10 @@ def EstimateRadius(top_index: list, img: np.ndarray, pupil: bool=True, pupil_rad
         plt.show()
         right_conv = right_conv
         dist_right = np.median(np.argmax(right_conv, axis=1)) + filter_size
-        print(dist_right, np.median(np.argmax(right_conv, axis=1)) + filter_size)
         left_conv = np.abs(np.diff(convolve2d(left_datah, gf, mode="valid"), axis=1))
         plt.imshow(left_conv,  cmap='gray')
         plt.show()
         dist_left = data_length - np.median(np.argmax(left_conv, axis=1)) + filter_size
-        print(dist_left, np.median(np.argmax(left_conv, axis=1)) + filter_size)
         radius_estimate = (dist_right + dist_left) / 2
     else:
         filter_size = 3
@@ -327,7 +408,6 @@ def EstimateRadius(top_index: list, img: np.ndarray, pupil: bool=True, pupil_rad
         plt.show()
         left_conv = left_conv.sum(axis=0)
         
-        print(dist_right, dist_left)
         radius_estimate = (dist_right + dist_left) / 2
     return radius_estimate
 
@@ -366,7 +446,7 @@ def FindEdge(
         sigma: float=1.0, 
         lateral: bool=False, 
         plot_img: Optional[np.ndarray]=None, 
-        plot_: bool=True,
+        plot_: bool=False,
         x0: Optional[int]=None,
         y0: Optional[int]=None,
         ):
@@ -408,11 +488,11 @@ def FindEdge(
         circle = Circle(opt_xy[::-1], opt_r, color="r", fill=False)
         ax.add_patch(circle)
         plt.show()
-    print("Optimal location and radius: ", f"\nx={opt_xy[1]}\ny={opt_xy[0]}\nr={opt_r}")
+        print("Optimal location and radius: ", f"\nx={opt_xy[1]}\ny={opt_xy[0]}\nr={opt_r}")
     opt_xy = (int(opt_xy[0]), int(opt_xy[1]))
     return opt_xy, int(opt_r)
 
-def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral: bool=False, plot_img: Optional[np.ndarray]=None) -> int:
+def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral: bool=False, plot_img: Optional[np.ndarray]=None, print_plot: bool=False) -> int:
 
     #struct_elem = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (50, 50))
     #img_erode = cv2.morphologyEx(img_use, cv2.MORPH_OPEN, struct_elem, iterations=1)
@@ -420,28 +500,31 @@ def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral
 
     top_index = FindPupileCenter(img)
     r_estimate_pupil = int(EstimateRadius(top_index, img, pupil=True))
-    print("Estimated pupil radius: ", r_estimate_pupil)
-    print("Estimated pupil center: ", top_index)
+    if print_plot:
+        print("Estimated pupil radius: ", r_estimate_pupil)
+        print("Estimated pupil center: ", top_index)
 
     pup_xy, pup_r = FindEdge(img, rmin=r_estimate_pupil - 10, rmax=r_estimate_pupil + 15, search_radius=20, filter_size=filter_size, sigma=sigma, lateral=True, plot_img=plot_img, plot_=False, x0=int(top_index[1]), y0=int(top_index[0]))
     #r_estimate_iris = int(EstimateRadius(pup_xy, img, pupil=False, pupil_radius=pup_r))
     r_estimate_iris = int(FindEdgeLoss(img, rmin=round(pup_r*1.5), rmax=round(pup_r*3), sigma=sigma, lateral=True, x0=int(pup_xy[1]), y0=int(pup_xy[0]), return_radius=True))
-    print("Estimated iris radius: ", r_estimate_iris)
+    if print_plot:
+        print("Estimated iris radius: ", r_estimate_iris)
     iris_xy, iris_r = FindEdge(img, rmin=r_estimate_iris - 30, rmax=r_estimate_iris + 25, search_radius=10, filter_size=filter_size, sigma=sigma, lateral=True, plot_img=plot_img, plot_=False, x0=int(pup_xy[1]), y0=int(pup_xy[0]))
 
-    fig, ax = plt.subplots(1)
-    if plot_img is not None:
-        img = plot_img
-    ax.imshow(img, cmap="gray", interpolation="none")
-    ax.plot(pup_xy[1], pup_xy[0], "r+")
-    ax.plot(iris_xy[1], iris_xy[0], "g+")
-    ax.plot(top_index[1], top_index[0], "b+")
-    circle_pup = Circle(pup_xy[::-1], pup_r, color="r", fill=False)
-    circle_iris = Circle(iris_xy[::-1], iris_r, color="g", fill=False)
-    ax.add_patch(circle_pup)
-    ax.add_patch(circle_iris)
-    ax.legend(["Pupil", "Iris", "First pupil center estimate"])
-    plt.show()
+    if print_plot:
+        fig, ax = plt.subplots(1)
+        if plot_img is not None:
+            img = plot_img
+        ax.imshow(img, cmap="gray", interpolation="none")
+        ax.plot(pup_xy[1], pup_xy[0], "r+")
+        ax.plot(iris_xy[1], iris_xy[0], "g+")
+        ax.plot(top_index[1], top_index[0], "b+")
+        circle_pup = Circle(pup_xy[::-1], pup_r, color="r", fill=False)
+        circle_iris = Circle(iris_xy[::-1], iris_r, color="g", fill=False)
+        ax.add_patch(circle_pup)
+        ax.add_patch(circle_iris)
+        ax.legend(["Pupil", "Iris", "First pupil center estimate"])
+        plt.show()
     #IsolateIris(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
     #LocateEyelids2(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
 

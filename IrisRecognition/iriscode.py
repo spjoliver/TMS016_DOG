@@ -56,10 +56,7 @@ def calculate_iris_code(transf_img, theta_psize=15, r_psize=15,
             pi = i*r_psize
             pj = j*theta_psize
             patch = norm_img[np.ix_(np.arange(pi, pi+r_psize), np.arange(pj, pj+theta_psize))]
-            #patch = transf_img[pi:pi+r_psize][pj:pj+theta_psize]
-            #project_gabor(img, np.pi, 0.5, 8, 0.4, 1.4)
             h = project_gabor(patch, np.pi, 0.5, omega, alpha, beta)
-            #wavelet = gabor_convolve(p, w, alpha, 1 / alpha)
             iriscode[i, j*2] = np.real(h)
             iriscode[i, j*2+1] = np.imag(h)
     iriscode[iriscode >= 0] = 1

@@ -174,7 +174,7 @@ def EstimateRadius(top_index: list, img: np.ndarray, pupil: bool=True, pupil_rad
 
     if pupil:
         filter_size = 6
-        data_length = 200
+        data_length = 250
         sigma = 0.5
         width = 50
         img[img > 0.7] = 0.2
@@ -336,8 +336,28 @@ def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral
     ax.add_patch(circle_iris)
     ax.legend(["Pupil", "Iris", "First pupil center estimate"])
     plt.show()
-
+    IsolateIris(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
     #LocateEyelids2(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
+
+
+def IsolateIris(
+        r: int,
+        pupil_radius: int,
+        x0: int,
+        y0: int,
+        img: np.ndarray,
+    ):
+    eye = img[max(y0 - r, 0):y0 + r + 1, x0 - r:x0 + r + 1]
+    eye_mask = np.zeros_like(eye)
+
+    for i in range(pupil_radius, r):
+        circle, ryup, rydown, rxup, rxdown = circle_mask(i, lateral=False, xmax=img.shape[1], ymax=img.shape[0], x0r=x0, y0r=y0)
+        circle = np.pad(circle, r-i, mode="constant", constant_values=0)
+        eye_mask[circle] = 1
+
+    eye[eye_mask == 0] = 1
+    plt.imshow(eye, cmap="gray")
+    plt.show()
 
 
 def EyelidFitter(

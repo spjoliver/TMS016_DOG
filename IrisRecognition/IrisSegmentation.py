@@ -84,8 +84,8 @@ def FastIrisPupilScanner(
         ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
         plt.show()
 
-    iris_xy_out = (iris_xy[1], iris_xy[0])
-    pupil_xy_out = (c, r)
+    iris_xy_out = (iris_xy[0], iris_xy[1])
+    pupil_xy_out = (r, c)
   
     # Search for lines, something similar can be done
     edges = cv2.Canny(img_use, 15, 20)
@@ -145,13 +145,13 @@ def FastIrisPupilScanner(
     full_iris = True
     if iris_xy[0]-iris_r < 0:
         iris_mask = iris_mask[-(iris_xy[0]-iris_r):, :]
-        iris_xy_out = (iris_xy_out[0] - (iris_xy[0]-iris_r), iris_xy_out[1])
-        pupil_xy_out = (pupil_xy_out[0] - (iris_xy[0]-iris_r), pupil_xy_out[1])
+        #iris_xy_out = (iris_xy_out[0] + (iris_xy[0]-iris_r), iris_xy_out[1])
+        #pupil_xy_out = (pupil_xy_out[0] + (iris_xy[0]-iris_r), pupil_xy_out[1])
         full_iris = False
     if iris_xy[1]-iris_r < 0:
         iris_mask = iris_mask[:, -(iris_xy[1]-iris_r):]
-        iris_xy_out = (iris_xy_out[0], iris_xy_out[1] - (iris_xy[1]-iris_r))
-        pupil_xy_out = (pupil_xy_out[0], pupil_xy_out[1] - (iris_xy[1]-iris_r))
+        #iris_xy_out = (iris_xy_out[0], iris_xy_out[1] + (iris_xy[1]-iris_r))
+        #pupil_xy_out = (pupil_xy_out[0], pupil_xy_out[1] + (iris_xy[1]-iris_r))
         full_iris = False
 
     if iris_xy[0]+iris_r + 1 > edges.shape[0]:
@@ -165,6 +165,8 @@ def FastIrisPupilScanner(
     edge_mask = edges[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1].astype(bool)#[skim.morphology.disk(iris_r)]
     usefull_eye = img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]#[skim.morphology.disk(iris_r)]
 
+    iris_xy_out = (iris_xy_out[0] - max(iris_xy[0]-iris_r, 0), iris_xy_out[1] - max(iris_xy[1]-iris_r, 0))
+    pupil_xy_out = (pupil_xy_out[0] - max(iris_xy[0]-iris_r, 0), pupil_xy_out[1] - max(iris_xy[1]-iris_r, 0))
     # outside of iris set to -1
     usefull_eye[iris_mask == 0] = -1
 

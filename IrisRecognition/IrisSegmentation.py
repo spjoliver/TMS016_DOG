@@ -4,7 +4,111 @@ from typing import Optional
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import skimage as skim
 
+
+def FastIrisPupilScanner(
+        img: str,
+    ):
+    
+    rvec = np.arange(46, 160, 1)
+    sigma = 0.5
+    filter_size = 5
+
+    img = cv2.imread(img, cv2.IMREAD_GRAYSCALE)[75:-75, 75:-75]
+    img_shape = img.shape
+    img_use = cv2.GaussianBlur(img, (filter_size, filter_size), 0)
+    
+    #edges = cv2.Canny(img_use, 20, 40), standard
+    edges = cv2.Canny(img_use, 45, 55)
+    plt.imshow(edges, cmap="gray")
+    plt.show()
+    
+    hough_results = skim.transform.hough_circle(edges, rvec)
+
+    ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+    prmax = rvec[ridx]
+    if edges.shape[1] - (c + prmax) < 45 and edges.shape[0] - (r + prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:-45, :-45], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+    elif edges.shape[1] - (c + prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:, :-45], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+    elif edges.shape[0] - (r + prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:-45, :], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+    elif (c - prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:, 45:], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+        c += 35
+    elif (r - prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[45:, :], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+        r += 45
+
+
+    #r_estimate_iris = EstimateRadius([c, r], img=img_use, pupil=False, pupil_radius=prmax)
+    #print("Estimated iris radius: ", r_estimate_iris)
+    r_estimate_iris = int(FindEdgeLoss(img, rmin=round(prmax*1.5), rmax=max(round(prmax*3), 290), sigma=sigma, lateral=True, x0=int(c), y0=int(r), return_radius=True))
+    iris_xy, iris_r = FindEdge(img, rmin=int(r_estimate_iris) - 25, rmax=int(r_estimate_iris), search_radius=5, filter_size=filter_size, sigma=sigma, lateral=True, plot_=False, x0=int(c), y0=int(r))
+
+    fig, ax = plt.subplots()
+    ax.imshow(img, cmap="gray")
+    print("Estimated pupil radius: ", prmax)
+    ax.add_patch(plt.Circle((c, r), prmax, color="r", fill=False))
+    ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
+    plt.show()
+
+    if False:
+        rho = 1
+        theta = np.pi / 180
+        threshold = 200
+        min_line_length = edges.shape[0] - edges.shape[0] // 2
+        max_line_gap = 20
+        #lines = cv2.HoughLinesP(edges, rho, theta, threshold, np.array([]), min_line_length, max_line_gap)
+        lines = cv2.HoughLinesP(edges, rho, theta, threshold, np.array([]), min_line_length, max_line_gap)
+        for line in lines:
+            for x1, y1, x2, y2 in line:
+                plt.plot((y1, x1), (y2, x2), color="r")
+        
+
+    if False:
+        result = skim.transform.hough_ellipse(edges, accuracy=20, threshold=250,
+                        min_size=100, max_size=120)
+        result.sort(order='accumulator')
+        best = list(result[-1])
+        yc, xc, a, b = (int(round(x)) for x in best[1:5])
+        orientation = best[5]
+
+        # Draw the ellipse on the original image
+        cy, cx = skim.draw.ellipse_perimeter(yc, xc, a, b, orientation)
+        # Draw the edge (white) and the resulting ellipse (red)
+        edges = skim.color.gray2rgb(skim.img_as_ubyte(edges))
+        edges[cy, cx] = 1
+        plt.imshow(edges)
+        plt.show()
+
+    # Search for lines, something similar can be done
+    edges = cv2.Canny(img_use, 15, 20)
+    edges[max(r-prmax-60, 0):r+prmax+60, max(c-prmax-60, 0):c+prmax+60] = 0
+    edges[max(r-prmax-70, 0):r+prmax+70, max(c-prmax-70, 0):c+prmax+70] = cv2.GaussianBlur(edges[max(r-prmax-70, 0):r+prmax+70, max(c-prmax-70, 0):c+prmax+70], (5, 5), 0)
+    edges = convolve2d(edges, np.ones((5, 5)), mode="same", fillvalue=0)
+    print(edges.shape)
+    print(edges.max())
+    print(edges.min())
+    plt.imshow(edges, cmap="gray")
+    plt.show()
+    
 
 def circle_mask(r, xmax: int, ymax: int, x0r: int, y0r: int, lateral: bool=False) -> np.ndarray:
     circle = np.zeros((r + 1, r + 1)).astype(bool)
@@ -61,16 +165,18 @@ def G(x: float, sigma: float=1.0) -> float:
 
 def LineIntegral(img: np.ndarray, r: int, x0: int, y0: int, lateral: bool=False) -> float:
     circle, ryup, rydown, rxup, rxdown = circle_mask(r, lateral=lateral, xmax=img.shape[1], ymax=img.shape[0], x0r=x0, y0r=y0)
-    a = img[y0 - ryup:y0 + rydown + 1, x0 - rxup:x0 + rxdown + 1][circle]
+    #a = img[y0 - ryup:y0 + rydown + 1, x0 - rxup:x0 + rxdown + 1][circle]
     return (img[y0 - ryup:y0 + rydown + 1, x0 - rxup:x0 + rxdown + 1][circle]).sum() / circle.sum()
 
 def drLineIntegral(img: np.ndarray, r: int, x0: int, y0: int, lateral: bool=False) -> float:
     return LineIntegral(img, r + 1, x0, y0, lateral=lateral) - LineIntegral(img, r, x0, y0, lateral=lateral)
 
-def drLineIntegralMulti(img: np.ndarray, rmin: int, rmax: int, x0: int, y0: int, lateral: bool=False) -> np.ndarray:
-    lint = np.zeros(rmax - rmin + 2)
-    for r in range(rmin, rmax + 2):
-        lint[r - rmin] = LineIntegral(img, r, x0, y0, lateral=lateral)
+def drLineIntegralMulti(img: np.ndarray, rmin: int, rmax: int, x0: int, y0: int, lateral: bool=False, jump: int=1) -> np.ndarray:
+    #lint = np.zeros(rmax - rmin + 2)
+    r_range = np.arange(rmin, rmax + 2, jump)
+    lint = np.zeros(r_range.shape)
+    for i, r in enumerate(r_range):#:range(rmin, rmax + 2):
+        lint[i] = LineIntegral(img, int(r), x0, y0, lateral=lateral)
     return np.diff(lint)
 
 def ConvolveGaussiandrLI(drLIM: np.ndarray, filter_size: int=3, sigma: float=1.0) -> np.ndarray:
@@ -198,11 +304,11 @@ def EstimateRadius(top_index: list, img: np.ndarray, pupil: bool=True, pupil_rad
         print(dist_left, np.median(np.argmax(left_conv, axis=1)) + filter_size)
         radius_estimate = (dist_right + dist_left) / 2
     else:
-        filter_size = 10
+        filter_size = 3
         data_length = 270
         pupile_adder = int(pupil_radius*1.4)
         sigma = 0.5
-        width = 60
+        width = 40
         gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
         gf = np.tile(gf, (7, 1))
         right_datah = img[max(top_index[0] - width//2, 0): top_index[0] + width//2, top_index[1] + pupile_adder: top_index[1] + data_length + pupile_adder]
@@ -236,14 +342,14 @@ def FindEdgeLoss(
         y0: Optional[int]=None,
         return_radius: bool=False,
         ):
-    
-    r_vec = np.arange(rmin, rmax + 1)
+    jump = 4
+    r_vec = np.arange(rmin, rmax + 1, jump)
 
     r_vec_current = r_vec.copy()
 
     rmin = r_vec_current[0]
     rmax = r_vec_current[-1]
-    drLIM = drLineIntegralMulti(img, rmin, rmax, x0, y0, lateral=lateral)
+    drLIM = drLineIntegralMulti(img, rmin, rmax, x0, y0, lateral=lateral, jump=jump)
     cgdrLIM = ConvolveGaussiandrLI(drLIM, filter_size=filter_size, sigma=sigma)
     arg_max_blur = np.argmax(cgdrLIM)
     if return_radius:
@@ -336,7 +442,7 @@ def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral
     ax.add_patch(circle_iris)
     ax.legend(["Pupil", "Iris", "First pupil center estimate"])
     plt.show()
-    IsolateIris(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
+    #IsolateIris(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
     #LocateEyelids2(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
 
 
@@ -796,3 +902,38 @@ if False:
     plt.imshow(img_use, cmap="gray")
     plt.show()
     FindPupilIris(img_use, filter_size=3, sigma=1.0, lateral=False, plot_img=img_use)
+
+
+if False:
+    import glob
+    import skimage as skim
+    infr_img = glob.glob("IrisRecognition/UTIRIS_infrared/*/*/*.bmp")
+
+    from IrisSegmentation import FindEdge, FindEdgeLoss, EstimateRadius
+    rvec = np.arange(42, 160, 1)
+    sigma = 0.5
+    filter_size = 4
+    for img in infr_img[:1]:
+        img = cv2.imread(img, cv2.IMREAD_GRAYSCALE)[90:-90, 90:-90]
+        img_shape = img.shape
+        img_use = cv2.medianBlur(img, 3)
+        edges = cv2.Canny(img_use, 30, 40)
+        plt.imshow(edges, cmap="gray")
+        plt.show()
+        
+        hough_results = skim.transform.hough_circle(edges, rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+
+        r_estimate_iris = EstimateRadius([r, c], img=img_use, pupil=False, pupil_radius=prmax)
+        print("Estimated iris radius: ", r_estimate_iris)
+        #r_estimate_iris = int(FindEdgeLoss(img, rmin=round(prmax*1.5), rmax=max(round(prmax*3), 290), sigma=sigma, lateral=True, x0=int(c), y0=int(r), return_radius=True))
+        iris_xy, iris_r = FindEdge(img, rmin=int(r_estimate_iris) - 25, rmax=int(r_estimate_iris), search_radius=5, filter_size=filter_size, sigma=sigma, lateral=True, plot_=False, x0=int(r), y0=int(c))
+
+        fig, ax = plt.subplots()
+        ax.imshow(img, cmap="gray")
+        print("Estimated pupil radius: ", prmax)
+        ax.add_patch(plt.Circle((c, r), rvec[ridx], color="r", fill=False))
+        ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
+        plt.show()

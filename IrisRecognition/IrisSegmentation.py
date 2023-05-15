@@ -527,6 +527,8 @@ def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral
         plt.show()
     #IsolateIris(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
     #LocateEyelids2(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
+    
+    return pup_xy, pup_r, iris_xy, iris_r
 
 
 def IsolateIris(

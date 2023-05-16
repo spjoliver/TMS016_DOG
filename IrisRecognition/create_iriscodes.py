@@ -63,7 +63,10 @@ def create_iriscodes(rootdir, savedir, alphas=[0.4], betas=[2.5], omegas=[4],
                         np.save(name, code)
                     codes = []
                     names = []
-
+                    
+    assert(len(codes) == len(names))
+    for name, code in zip(names, codes):
+        np.save(name, code)
 
 if __name__ == "__main__":
     main()

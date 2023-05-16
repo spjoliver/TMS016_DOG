@@ -59,8 +59,8 @@ def create_iriscodes(rootdir, savedir, alphas=[0.4], betas=[2.5], omegas=[4],
                 names.append(f"{savedir}{file[:-4]}.npy")
                 if i%100 == 0:
                     assert(len(codes) == len(names))
-                    for code, name in zip(codes, names):
-                        np.save(code, name)
+                    for name, code in zip(names, codes):
+                        np.save(name, code)
                     codes = []
                     names = []
 

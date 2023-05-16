@@ -36,7 +36,7 @@ omega is supposed to span three octaves and is inversely proportional
 to beta.
 """
 def calculate_iris_code(transf_img, theta_psize=15, r_psize=15, 
-                alpha=0.1, omega=16):
+                        alpha=0.4, beta=2.5, omega=4):
     # Impose the demand that the dimensions of the transfromed iris is 
     # divisible by the patch sizes.
     assert(transf_img.shape[0]%r_psize == 0) 
@@ -45,9 +45,6 @@ def calculate_iris_code(transf_img, theta_psize=15, r_psize=15,
     # Create the code matrix. Each row is a different w.
     iriscode = np.zeros([transf_img.shape[0]//r_psize, 
                          transf_img.shape[1]//theta_psize * 2])
-    
-    # beta is inversely proportional
-    beta = 1./alpha
     
     norm_img = (transf_img - np.mean(transf_img))/np.std(transf_img)
     # The iriscode is calculated from each patch
@@ -61,4 +58,52 @@ def calculate_iris_code(transf_img, theta_psize=15, r_psize=15,
             iriscode[i, j*2+1] = np.imag(h)
     iriscode[iriscode >= 0] = 1
     iriscode[iriscode < 0] = 0
-    return iriscode.flatten()
+    return iriscode
+
+
+"""
+Cycles the iriscode theta wise. Allows for stacked thetas on the column direction.
+Takes the iriscode and n_theta_patches used when calculating the code as input.
+"""
+def cycle_iriscode(iriscode, n_theta_patches):
+    n = iriscode.shape[1]
+    new_code = np.zeros(iriscode.shape)
+    assert(n%n_theta_patches == 0)
+    repeats = n//(n_theta_patches*2)
+    print(repeats)
+    for i in range(repeats):
+        start = i*n_theta_patches*2
+        print(start)
+        new_code[:, start:start+2*1] = iriscode[:, start + 2*7:start + 2*8]
+        new_code[:, start + 2*1: start + 2*8] = iriscode[:, start:start + 2*7]
+    return new_code
+
+
+"""
+This function will create iriscodes using different filters. The codes are concatenated column-wise
+meaning that each filter is separated over (transf_img.shape[1]/theta_psize)*2 columns.
+Pairwise determines if the filters are chosen for all pairwise combinations (equal to len(alpha) codes) 
+or over all len(alphas)*len(betas)*len(omegas) combinations if False.
+"""
+def calculate_iriscode_different_filters(transf_img, 
+                                         alphas=[0.4, 0.8], betas=[2.5, 1.25], omegas=[4, 8],
+                                         theta_psize = 15, rho_psize = 15,
+                                         pairwise=True):
+    iriscodes = []
+    if pairwise:
+        assert(len(alphas) == len(betas) and len(betas) == len(omegas))
+        for alpha, beta, omega in zip(alphas, betas, omegas):
+            code = calculate_iris_code(transf_img, theta_psize=theta_psize, r_psize=rho_psize, 
+                                alpha=alpha, beta=beta, omega=omega)
+            iriscodes.append(code)
+        return np.concatenate(iriscodes, axis = 1)
+    else:
+        for alpha in alphas:
+            for beta in betas:
+                for omega in omegas:
+                    code = calculate_iris_code(transf_img, theta_psize=theta_psize, r_psize=rho_psize, 
+                                alpha=alpha, beta=beta, omega=omega)
+                    iriscodes.append(code)
+        return np.concatenate(iriscodes, axis = 1)
+
+

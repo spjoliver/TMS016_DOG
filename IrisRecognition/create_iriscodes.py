@@ -8,7 +8,7 @@ $ python3 create_iriscodes.py
 import os
 from util import transform_cropped_iris
 from IrisSegmentation import FastIrisPupilScanner
-
+from iriscode import calculate_iriscode_different_filters
 
 
 ROOTDIR = "UTIRIS_infrared/"
@@ -43,14 +43,18 @@ def create_iriscodes(rootdir, savedir, alphas=[0.4], betas=[2.5], omegas=[4],
                     print(f"Warning, IndexError in FastIrisPupilScanner for {image_name}")
                     continue
                 try:
-                    transf_image = transform_copped_iris(out['iris']/255, 
+                    transf_image = transform_cropped_iris(out['iris']/255, 
                                                      out['pupil_xy'], out['pupil_r'],
                                                      out['iris_xy'], out['iris_r'], 
                                                      theta_res = theta_psize*n_theta_patches,
                                                      rho_res = rho_psize*n_rho_patches)
                 except TypeError:
-                    print(f"Warning, TypeError in transform_copped_iris for {image_name}, pupil: c{out['pupil_xy']} r{out['pupil_r']}, iris: c{out['iris_xy']} r{out['iris_r']}")
+                    print(f"Warning, TypeError in transform_cropped_iris for {image_name}, pupil: c{out['pupil_xy']} r{out['pupil_r']}, iris: c{out['iris_xy']} r{out['iris_r']}")
                     continue
+                except IndexError:
+                    print(f"Warning, IndexError in transform_copped_iris for {image_name}")
+                    continue
+                
                 code = calculate_iriscode_different_filters(transf_image, 
                                          alphas=alphas, betas=betas, omegas=omegas,
                                          theta_psize = theta_psize, rho_psize = rho_psize,

@@ -7,6 +7,246 @@ import matplotlib.pyplot as plt
 import skimage as skim
 
 
+def eyelid_scanner():
+    """
+    Generates different eyelid contour masks for a couple of different openness levels of eye
+    and orientation of the eye, i.e. the angle of the eye with respect to the camera.
+    Use this mask the same way as to the iris mask to find eyelid shape.
+    """
+
+    pass
+
+def FastIrisPupilScanner2(
+        filename: str,
+        plot_print: bool = False,
+    ) -> dict:
+    """
+
+    Returns:
+        dict: containing the following key-value pairs:
+            "iris_xy": tuple of x and y coordinates of the iris center
+            "iris_r": radius of the iris
+            "pupil_xy": tuple of x and y coordinates of the pupil center
+            "pupil_r": radius of the pupil
+            "iris": iris image, -1 values indicate pixels not identified as iris
+            "full_iris": boolean, True if the full iris could be extracted from the original image
+
+    """
+
+
+
+    rvec = np.arange(80, 160, 1)
+    sigma = 0.5
+    filter_size = 5
+
+    img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)#[75:-75, 75:-75]
+    img_shape = img.shape
+    lid_img = img.copy().astype(float)/255
+    img_use = cv2.GaussianBlur(img, (filter_size, filter_size), 0)
+    
+    #edges = cv2.Canny(img_use, 20, 40)#, standard
+    edges = cv2.Canny(img_use, 40, 50)
+    if plot_print:
+        plt.imshow(edges, cmap="gray")
+        plt.show()
+    
+    hough_results = skim.transform.hough_circle(edges, rvec)
+
+    ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+    prmax = rvec[ridx]
+    if edges.shape[1] - (c + prmax) < 45 and edges.shape[0] - (r + prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:-45, :-45], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+    elif edges.shape[1] - (c + prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:, :-45], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+    elif edges.shape[0] - (r + prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:-45, :], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+    elif (c - prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[:, 45:], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+        c += 35
+    elif (r - prmax) < 45:
+        hough_results = skim.transform.hough_circle(edges[45:, :], rvec)
+
+        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
+        prmax = rvec[ridx]
+        r += 45
+
+
+    #r_estimate_iris = EstimateRadius([c, r], img=img_use, pupil=False, pupil_radius=prmax)
+    #print("Estimated iris radius: ", r_estimate_iris)
+    r_estimate_iris = int(FindEdgeLoss(img, rmin=round(prmax*1.5), rmax=min(max(round(prmax*3), 290), 335), sigma=sigma, lateral=True, x0=int(c), y0=int(r), return_radius=True))
+    iris_xy, iris_r = FindEdge(img, rmin=min(int(r_estimate_iris), 335) - 25, rmax=min(int(r_estimate_iris), 335) + 15, search_radius=5, filter_size=filter_size, sigma=sigma, lateral=True, plot_=False, x0=int(c), y0=int(r))
+
+    if iris_r < 175:
+        accums, cx, cy, radii = skim.transform.hough_circle_peaks(hough_results, rvec, total_num_peaks=20)
+        for center_y, center_x, radius in zip(cy[1:], cx[1:], radii[1:]):
+            r = center_y
+            c = center_x
+            prmax = radius
+            r_estimate_iris = int(FindEdgeLoss(img, rmin=round(prmax*1.5), rmax=min(max(round(prmax*3), 290), 335), sigma=sigma, lateral=True, x0=int(c), y0=int(r), return_radius=True))
+            iris_xy, iris_r = FindEdge(img, rmin=min(int(r_estimate_iris), 335) - 25, rmax=min(int(r_estimate_iris), 335) + 15, search_radius=5, filter_size=filter_size, sigma=sigma, lateral=True, plot_=False, x0=int(c), y0=int(r))
+            if iris_r > 175:
+                break
+        
+
+
+    iris_xy_out = (iris_xy[0], iris_xy[1])
+    pupil_xy_out = (r, c)
+
+    if plot_print:
+        fig, ax = plt.subplots()
+        ax.imshow(img, cmap="gray")
+        print("Estimated pupil radius: ", prmax)
+        ax.add_patch(plt.Circle((c, r), prmax, color="r", fill=False))
+        ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
+        plt.show()
+
+    isolated_iris = img.copy()
+
+    iris_mask = skim.morphology.disk(iris_r)
+    pupile_mask = skim.morphology.disk(prmax + 2)
+    
+    if r-prmax < 0:
+        pupile_mask = pupile_mask[-(r-(prmax+2) ):, :]
+    if c-prmax < 0:
+        pupile_mask = pupile_mask[:, -(c-(prmax+2) ):]
+    if r+prmax  + 1 > edges.shape[0]:
+        pupile_mask = pupile_mask[:-(r+(prmax+2)  + 1 - edges.shape[0]), :]
+    if c+prmax  + 1 > edges.shape[1]:
+        pupile_mask = pupile_mask[:, :-(c+(prmax+2)  + 1 - edges.shape[1])]
+    
+    # pupil set to -1
+    isolated_iris[max(r-(prmax+2), 0):r+(prmax+2) + 1, max(c-(prmax+2), 0):c+(prmax+2) + 1][pupile_mask.astype(bool)] = -1
+
+    full_iris = True
+    r_top = 0
+    if iris_xy[0]-iris_r < 0:
+        iris_mask = iris_mask[-(iris_xy[0]-iris_r):, :]
+        #iris_xy_out = (iris_xy_out[0] + (iris_xy[0]-iris_r), iris_xy_out[1])
+        #pupil_xy_out = (pupil_xy_out[0] + (iris_xy[0]-iris_r), pupil_xy_out[1])
+        r_top = -(iris_xy[0]-iris_r)
+        full_iris = False
+    if iris_xy[1]-iris_r < 0:
+        iris_mask = iris_mask[:, -(iris_xy[1]-iris_r):]
+        #iris_xy_out = (iris_xy_out[0], iris_xy_out[1] + (iris_xy[1]-iris_r))
+        #pupil_xy_out = (pupil_xy_out[0], pupil_xy_out[1] + (iris_xy[1]-iris_r))
+        full_iris = False
+
+    if iris_xy[0]+iris_r + 1 > edges.shape[0]:
+        iris_mask = iris_mask[:-(iris_xy[0]+iris_r + 1 - edges.shape[0]), :]
+        full_iris = False
+
+    if iris_xy[1]+iris_r + 1 > edges.shape[1]:
+        iris_mask = iris_mask[:, :-(iris_xy[1]+iris_r + 1 - edges.shape[1])]
+        full_iris = False
+    
+    usefull_eye = img_use[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]#[skim.morphology.disk(iris_r)]
+    isolated_iris = isolated_iris[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]#[skim.morphology.disk(iris_r)]
+    
+    iris_xy_out = (iris_xy_out[0] - max(iris_xy[0]-iris_r, 0), iris_xy_out[1] - max(iris_xy[1]-iris_r, 0))
+    pupil_xy_out = (pupil_xy_out[0] - max(iris_xy[0]-iris_r, 0), pupil_xy_out[1] - max(iris_xy[1]-iris_r, 0))
+    ## Find eyelid contour
+
+    # upper eyelid
+
+    lid_img = img.astype(float)/255
+    lid_img = lid_img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
+    lid_img[lid_img > 0.85] = lid_img.mean()
+    pup_mask = skim.morphology.disk(prmax + 2).astype(bool)
+    rr, cc = skim.draw.circle_perimeter(pupil_xy_out[0], pupil_xy_out[1], prmax + 5)
+    rr_new = rr[rr > pupil_xy_out[0]]
+    cc_new = cc[rr > pupil_xy_out[0]]
+    lid_img[pupil_xy_out[0] - pup_mask.shape[0]//2:pupil_xy_out[0] + pup_mask.shape[0]//2 + 1, pupil_xy_out[1] - pup_mask.shape[0]//2:pupil_xy_out[1] + pup_mask.shape[0]//2 + 1][pup_mask] = lid_img[rr_new, cc_new].mean()
+    #lid_img = cv2.morphologyEx(lid_img, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 4)), iterations=1)
+    #lid_img = cv2.morphologyEx(lid_img, cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
+
+    amx, rmax, rposmax = FindEyeLidEdge(
+                                        img=lid_img, 
+                                        pupil_rpos=pupil_xy_out[0],
+                                        c=pupil_xy_out[1],
+                                        rposjump=7,
+                                        iris_radius=iris_r,
+                                        pupil_radius=prmax,
+                                        n_radiusjumps=30,
+                                        plot=plot_print,
+                                        upper=True,
+                                        anglemin=-np.pi/6,
+                                        anglemax=np.pi/6,
+                                        n_angles=15,
+                                    )
+    
+    rr, cc = skim.draw.ellipse_perimeter(rposmax, pupil_xy_out[1], rmax, int(iris_r*1.5), orientation=amx, shape=lid_img.shape)
+    rr_upper = rr[rr < rposmax]
+    cc_upper = cc[rr < rposmax]
+    if np.min(rr_upper) > 15:
+        rr, cc = skim.draw.ellipse_perimeter(rposmax + 35, pupil_xy_out[1], rmax, int(iris_r*1.5), orientation=amx, shape=lid_img.shape)
+        rr_upper = rr[rr < rposmax]
+        cc_upper = cc[rr < rposmax]
+
+
+    for r, c in zip(rr_upper, cc_upper):
+        isolated_iris[:r, c] = -1
+
+
+    amx, rmax, rposmax= FindEyeLidEdge(
+                                        img=lid_img, 
+                                        pupil_rpos=pupil_xy_out[0],
+                                        c=pupil_xy_out[1],
+                                        rposjump=7,
+                                        n_radiusjumps=30,
+                                        iris_radius=iris_r,
+                                        pupil_radius=prmax,
+                                        plot=plot_print,
+                                        upper=False,
+                                        anglemin=-np.pi/6,
+                                        anglemax=np.pi/6,
+                                        n_angles=15,
+                                    )
+    
+  
+
+    rr, cc = skim.draw.ellipse_perimeter(rposmax, pupil_xy_out[1], rmax, int(iris_r*1.5), orientation=amx, shape=lid_img.shape)
+    rr_lower = rr[rr > rposmax]
+    cc_lower = cc[rr > rposmax]
+    if np.max(rr_lower) < lid_img.shape[0] - 30:
+        rr, cc = skim.draw.ellipse_perimeter(rposmax - 5, pupil_xy_out[1], rmax, int(iris_r*1.5), orientation=amx, shape=lid_img.shape)
+        rr_lower = rr[rr > rposmax]
+        cc_lower = cc[rr > rposmax]
+
+    for r, c in zip(rr_lower, cc_lower):
+        isolated_iris[r:, c] = -1
+    
+
+    isolated_iris[iris_mask == 0] = -1
+
+    if plot_print:
+        plt.imshow(usefull_eye, cmap="gray")
+        plt.plot(iris_xy_out[1], iris_xy_out[0], "r+")
+        plt.plot(pupil_xy_out[1], pupil_xy_out[0], "b+")
+        plt.show()
+        plt.imshow(isolated_iris, cmap="gray")
+        plt.show()
+    
+    return {
+        "iris": isolated_iris,
+        "iris_xy": iris_xy_out,
+        "pupil_xy": pupil_xy_out,
+        "iris_r": iris_r,
+        "pupil_r": prmax,
+        "full_iris": full_iris,
+    }
+
 def FastIrisPupilScanner(
         filename: str,
         plot_print: bool = False,
@@ -24,16 +264,16 @@ def FastIrisPupilScanner(
 
     """
     
-    rvec = np.arange(46, 160, 1)
+    rvec = np.arange(50, 160, 1)
     sigma = 0.5
     filter_size = 5
 
-    img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)[75:-75, 75:-75]
+    img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)#[75:-75, 75:-75]
     img_shape = img.shape
     img_use = cv2.GaussianBlur(img, (filter_size, filter_size), 0)
     
-    #edges = cv2.Canny(img_use, 20, 40), standard
-    edges = cv2.Canny(img_use, 42, 53)
+    edges = cv2.Canny(img_use, 20, 40)#, standard
+    #edges = cv2.Canny(img_use, 42, 53)
     if plot_print:
         plt.imshow(edges, cmap="gray")
         plt.show()
@@ -133,7 +373,7 @@ def FastIrisPupilScanner(
     
     if r-prmax < 0:
         pupile_mask = pupile_mask[-(r-prmax ):, :]
-    if c-iris_r < 0:
+    if c-prmax < 0:
         pupile_mask = pupile_mask[:, -(c-prmax ):]
     if r+prmax  + 1 > edges.shape[0]:
         pupile_mask = pupile_mask[:-(r+prmax  + 1 - edges.shape[0]), :]
@@ -141,12 +381,15 @@ def FastIrisPupilScanner(
         pupile_mask = pupile_mask[:, :-(c+prmax  + 1 - edges.shape[1])]
     
     # pupil set to -1
-    img[r-prmax:r+prmax + 1, c-prmax:c+prmax + 1][pupile_mask.astype(bool)] = -1
+    img[max(r-prmax, 0):r+prmax + 1, max(c-prmax, 0):c+prmax + 1][pupile_mask.astype(bool)] = -1
+
     full_iris = True
+    r_top = 0
     if iris_xy[0]-iris_r < 0:
         iris_mask = iris_mask[-(iris_xy[0]-iris_r):, :]
         #iris_xy_out = (iris_xy_out[0] + (iris_xy[0]-iris_r), iris_xy_out[1])
         #pupil_xy_out = (pupil_xy_out[0] + (iris_xy[0]-iris_r), pupil_xy_out[1])
+        r_top = -(iris_xy[0]-iris_r)
         full_iris = False
     if iris_xy[1]-iris_r < 0:
         iris_mask = iris_mask[:, -(iris_xy[1]-iris_r):]
@@ -164,14 +407,48 @@ def FastIrisPupilScanner(
     
     edge_mask = edges[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1].astype(bool)#[skim.morphology.disk(iris_r)]
     usefull_eye = img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]#[skim.morphology.disk(iris_r)]
+    iris_img = img_use[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
+
+    
 
     iris_xy_out = (iris_xy_out[0] - max(iris_xy[0]-iris_r, 0), iris_xy_out[1] - max(iris_xy[1]-iris_r, 0))
     pupil_xy_out = (pupil_xy_out[0] - max(iris_xy[0]-iris_r, 0), pupil_xy_out[1] - max(iris_xy[1]-iris_r, 0))
+
+    #LocateEyelids(iris_r, prmax, iris_xy[1], iris_xy[0], img_use)
+    test = cv2.Canny(img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1][(iris_r - r_top+ +15):, :], 18, 25)
+    if test.shape[0] > 100 and False:
+        test[test > 0.1] = 255
+        plt.imshow(test, cmap="gray")
+        plt.show()
+        plt.imshow(img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1][(iris_r- r_top + +15):, :], cmap="gray")
+        plt.show()
+        
+        test = cv2.GaussianBlur(test, (5, 5), 0)
+        #test = cv2.erode(test, struct_elem2, iterations=1)
+        test = cv2.dilate(test, struct_elem2, iterations=1)
+        test[:int(test.shape[0]/2), test.shape[1]//2 - test.shape[1]//5:test.shape[1]//2 + test.shape[1]//5] = 0
+        
+        xtop = np.arange(test.shape[1])
+        topy = np.argmax(test, axis=0)
+        maskx = (xtop > test.shape[1]//2 - test.shape[1]//5) & (xtop < test.shape[1]//2 + test.shape[1]//5) & (topy < 50)
+        masky1 = (xtop > test.shape[1]//2 + test.shape[1]//5) & (topy > test.shape[0] - 15)
+        masky2 = (xtop < test.shape[1]//2 - test.shape[1]//5) & (topy > test.shape[0] - 15)
+    
+        topyn = topy[(~maskx) & (~masky1) & (~masky2)]
+       
+        xtopn = xtop[(~maskx) & (~masky1) & (~masky2)]
+        p = np.polyfit(xtopn, topyn, 2)
+        yvals = np.polyval(p, xtop)
+        plt.imshow(img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1][(iris_r - r_top+ +15):, :], cmap="gray")
+        plt.plot(xtopn, topyn, "r+")
+        plt.plot(xtop, yvals, "g-")
+        plt.show()
+
     # outside of iris set to -1
     usefull_eye[iris_mask == 0] = -1
 
     # edge_mask might have detected pixels not belonging to the iris, set them to -1
-    usefull_eye[edge_mask == True] = -1
+    #usefull_eye[edge_mask == True] = -1
     if plot_print:
         plt.imshow(usefull_eye, cmap="gray")
         plt.plot(iris_xy_out[1], iris_xy_out[0], "r+")
@@ -184,8 +461,14 @@ def FastIrisPupilScanner(
         "pupil_xy": pupil_xy_out,
         "iris_r": iris_r,
         "pupil_r": prmax,
-        "full_iris": full_iris
+        "full_iris": full_iris,
+        "usefull_eye": iris_img
     }
+
+def get_upper_eyelid(img: np.ndarray, iris_r: int, pupil_r: int, pupil_xy: tuple, plot_print: bool=False) -> np.ndarray:
+
+    #upper_eyelid = img[]
+    pass
     
 
 def circle_mask(r, xmax: int, ymax: int, x0r: int, y0r: int, lateral: bool=False) -> np.ndarray:
@@ -240,6 +523,247 @@ def circle_mask(r, xmax: int, ymax: int, x0r: int, y0r: int, lateral: bool=False
 
 def G(x: float, sigma: float=1.0) -> float:
     return np.exp(-x**2 / (2 * sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
+
+def EyeLidMask(c: int, r: int, radius: int, iris_radius: int, angle: float, img_shape: tuple, upper: bool) -> np.ndarray:
+
+    rr, cc = skim.draw.ellipse_perimeter(r, c, radius, int(iris_radius*1.5), orientation=angle, shape=(img_shape[0], img_shape[1]))
+    if upper:
+        rr_inbound = rr[rr < r]
+        cc_inbound = cc[rr < r]
+    else:
+        rr_inbound = rr[rr > r]
+        cc_inbound = cc[rr > r]
+
+    
+    return rr_inbound, cc_inbound
+
+def LineIntegralEyeLid(img: np.ndarray, c: int, r: int, radius: int, iris_radius: int, angle: float, upper: bool) -> float:
+    rr, cc = EyeLidMask(c, r, radius, iris_radius, angle, img.shape, upper)
+    #a = img[y0 - ryup:y0 + rydown + 1, x0 - rxup:x0 + rxdown + 1][circle]
+    nan = False
+    if rr.shape[0] < (img.shape[0] + img.shape[1]) / 10:
+        nan = True
+        return np.nan, nan
+    return (img[rr, cc]).sum() / rr.shape[0], nan
+
+def drLineIntegralMultiEyeLid(img: np.ndarray, c: int, rvec: np.ndarray, radius: int, iris_radius: int, angle: float, upper: bool) -> np.ndarray:
+    #lint = np.zeros(rmax - rmin + 2)
+    lint = np.zeros(rvec.shape[0])
+    nan_in = False
+    for i, r in enumerate(rvec):#:range(rmin, rmax + 2):
+        lint[i], nan = LineIntegralEyeLid(img, c, r, radius, iris_radius, angle, upper)
+        nan_in = nan_in or nan
+    
+    if nan_in:
+        try:
+            mask = np.isnan(lint)
+            lint[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), lint[~mask])
+        except:
+            pass
+    
+    return np.diff(lint)
+
+def FindEyeLidEdge(
+        img: np.ndarray, 
+        pupil_rpos: int,
+        pupil_radius: int,
+        c: int, 
+        rposjump: int, 
+        iris_radius: int,
+        radiusmin: Optional[int]=None,
+        radiusmax: Optional[int]=None,
+        n_radiusjumps: Optional[int]=150,
+        anglemin: float=-np.pi/18, 
+        anglemax: float=np.pi/18, 
+        n_angles: int=10, 
+        upper: bool=True,
+        filter_size: int=3,
+        sigma: float=1.0,
+        plot: bool=False
+        ):
+    """
+    Returns:
+        angleval, radiusval, rposmaxval
+    """
+    if radiusmin is None:
+        radiusmin = int(pupil_rpos * 0.3)
+    if radiusmax is None:
+        if upper:
+            radiusmax = int(pupil_rpos * 3)
+        else:
+            radiusmax = int(pupil_rpos * 3.2)
+
+    radiusvec = np.round(np.linspace(radiusmin, radiusmax , n_radiusjumps)).astype(int)
+    
+    anglevec = np.linspace(anglemin, anglemax, n_angles)
+
+    angleval = np.zeros((anglevec.shape[0], radiusvec.shape[0]))
+    radiusval = np.zeros((anglevec.shape[0], radiusvec.shape[0]))
+    rposmaxval = np.zeros((anglevec.shape[0], radiusvec.shape[0]))
+    maxblurval = np.zeros((anglevec.shape[0], radiusvec.shape[0]))
+
+    if upper:
+        rmin = (np.array(
+        [1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+        )*pupil_rpos).astype(int).astype(float)
+
+        posmin = (np.array(
+            [2.3, 2.2, 2.1, 2.0, 1.9, 1.8, 1.7, 1.6, 1.5, 1.4, 1.3]
+        )*pupil_rpos).astype(int).astype(float)
+
+        radii_to_pos_min = np.polyfit(rmin, posmin, 2)
+
+        rmax = (np.array(
+            [1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+        )*pupil_rpos).astype(int).astype(float)
+
+        posmax = (np.array(
+            [1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+        )*pupil_rpos).astype(int).astype(float)
+
+        radii_to_pos_max = np.polyfit(rmax, posmax, 2)
+    else:
+        iris_rmin = (np.array(
+        [1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+        )*pupil_rpos).astype(int).astype(float)
+
+        posmin = ((np.array(
+            [-0.25, -0.15, -0.05, 0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75]
+        ) + 0.3)*pupil_rpos).astype(int).astype(float)
+
+        radii_to_pos_min = np.polyfit(iris_rmin, posmin, 2)
+
+        iris_rmax = (np.array(
+            [1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+        )*pupil_rpos).astype(int).astype(float)
+
+        posmax = ((np.array(
+            [0.74, 0.84, 0.94, 1.04, 1.14, 1.24, 1.34, 1.44, 1.54, 1.64, 1.74]
+        ) -0.2)*pupil_rpos).astype(int).astype(float)
+
+        radii_to_pos_max = np.polyfit(iris_rmax, posmax, 2)
+
+    if upper:
+        rposjump = -rposjump
+
+    for i, angle in enumerate(anglevec):
+        
+        for j, radius in enumerate(radiusvec):
+
+            rposmin = int(np.polyval(radii_to_pos_min, radius))
+            rposmax = int(np.polyval(radii_to_pos_max, radius))
+
+            rposvec = np.arange(rposmin, rposmax + 1, rposjump)
+            angleval[i, j] = angle
+            radiusval[i, j] = radius
+            drLIM = drLineIntegralMultiEyeLid(img, c, rposvec, radius, iris_radius, angle, upper)
+            cgdrLIM = ConvolveGaussiandrLI(drLIM, filter_size=filter_size, sigma=sigma)
+            arg_max_blur = np.argmax(cgdrLIM)
+            rposmaxval[i, j] = rposvec[arg_max_blur]
+            maxblurval[i, j] = cgdrLIM[arg_max_blur]
+    
+    maxblurval = maxblurval.flatten()
+    rposmaxval = rposmaxval.flatten()
+    angleval = angleval.flatten()
+    radiusval = radiusval.flatten()
+    maxbluridx = np.unravel_index(np.argmax(maxblurval), maxblurval.shape)
+    amx = int(angleval[maxbluridx])
+    rmax = int(radiusval[maxbluridx])
+    rposmax = int(rposmaxval[maxbluridx])
+
+    if not upper:
+        top_indices = np.argsort(maxblurval)
+        rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
+        max_rr = rr[rr > rposmax].max()
+        if max_rr - 27 < pupil_rpos + pupil_radius + 5:
+            print("Under eyelid too closse to pupil, search for estimation further away:")
+            for i in range(1, top_indices.shape[0]):
+                if max_rr - 27 < pupil_rpos + pupil_radius:
+                    continue
+                top_blur = top_indices[-i]
+                rposmax = int(rposmaxval[top_blur])
+                amx = int(angleval[top_blur])
+                rmax = int(radiusval[top_blur])
+                rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
+                max_rr = rr[rr > rposmax].max()
+                if max_rr - 27 < pupil_rpos + pupil_radius + 5:
+                    continue
+                else:
+                    break
+        else:
+            maxbluridx = np.unravel_index(np.argmax(maxblurval), maxblurval.shape)
+            amx = int(angleval[maxbluridx])
+            rmax = int(radiusval[maxbluridx])
+            rposmax = int(rposmaxval[maxbluridx])
+
+    rposmin_opt = int(np.polyval(radii_to_pos_min, rmax))
+    rposmax_opt = int(np.polyval(radii_to_pos_max, rmax))
+    if plot:
+        img_plt = img.copy()
+        rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
+        if upper:
+            img_plt[rr[rr < rposmax], cc[rr < rposmax]] = 0
+        else:
+            img_plt[rr[rr > rposmax], cc[rr > rposmax]] = 0
+        plt.imshow(img_plt, cmap='gray')
+        plt.show()
+    """
+    amx, rposmax = OptimizeEyeLidEdge(img, upper, rposmin_opt, rposmax_opt, c, rmax, iris_radius, filter_size=3)
+
+    if plot:
+        img_plt = img.copy()
+        rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
+        if upper:
+            img_plt[rr[rr < rposmax], cc[rr < rposmax]] = 0
+        else:
+            img_plt[rr[rr > rposmax], cc[rr > rposmax]] = 0
+        plt.imshow(img_plt, cmap='gray')
+        plt.show()
+    """
+
+    return amx, rmax, rposmax
+
+
+def OptimizeEyeLidEdge(img, upper, rposmin, rposmax, c, rmax, iris_radius, filter_size=3, sigma=1.5):
+
+    amin = -np.pi/18
+    amax = -amin
+    n_angles = 50
+    if upper:
+        arange = np.linspace(amax, amin, n_angles)
+    else:
+        arange = np.linspace(amin, amax, n_angles)
+    amaxval = np.zeros(n_angles)
+    maxblurval = np.zeros(n_angles)
+    rposmaxval = np.zeros(n_angles)
+
+    if upper:
+        rposvec = np.arange(rposmin, rposmax + 1, -1)
+    else:
+        rposvec = np.arange(rposmin, rposmax + 1, 1)
+
+    rposvec_len = rposvec.shape[0]
+    rposvec_lbound = rposvec[rposvec_len//3]
+    rposvec_lbound_mask = rposvec <= rposvec_lbound
+
+    for i, angle in enumerate(arange):
+        drLIM = drLineIntegralMultiEyeLid(img, c, rposvec, rmax, iris_radius, angle, upper)
+        cgdrLIM = ConvolveGaussiandrLI(drLIM, filter_size=filter_size, sigma=sigma)
+        if not upper:
+            print(cgdrLIM.shape[0])
+            print(rposvec_lbound_mask.shape[0])
+            cgdrLIM[rposvec_lbound_mask[1:]] = -1000
+        arg_max_blur = np.argmax(cgdrLIM)
+        rposmaxval[i] = rposvec[arg_max_blur]
+        maxblurval[i] = cgdrLIM[arg_max_blur]
+        amaxval[i] = angle
+    
+    maxbluridx = np.argmax(maxblurval)
+    amx = amaxval[maxbluridx]
+    rposmax = rposmaxval[maxbluridx]
+    return int(amx), int(rposmax)
+
+        
 
 def LineIntegral(img: np.ndarray, r: int, x0: int, y0: int, lateral: bool=False) -> float:
     circle, ryup, rydown, rxup, rxdown = circle_mask(r, lateral=lateral, xmax=img.shape[1], ymax=img.shape[0], x0r=x0, y0r=y0)
@@ -642,11 +1166,11 @@ def EyelidFitter(
     plt.plot(x_eval, y_eval, "r-")
     plt.show()
 
-def EyeLidMask(x: np.ndarray, y: np.ndarray, x_eval: np.ndarray, maxy: int, miny: int):
-    
-    p = np.polyfit(x, y, 2)
-    y = np.polyval(p, x_eval)
-    return np.round(y[(y <= maxy) & (y >= miny)]), x_eval[(y <= maxy) & (y >= miny)]
+#def EyeLidMask(x: np.ndarray, y: np.ndarray, x_eval: np.ndarray, maxy: int, miny: int):
+#    
+#    p = np.polyfit(x, y, 2)
+#    y = np.polyval(p, x_eval)
+#    return np.round(y[(y <= maxy) & (y >= miny)]), x_eval[(y <= maxy) & (y >= miny)]
 
 
 def LineIntegral2(img: np.ndarray, x: np.ndarray, y: np.ndarray, x_eval: np.ndarray, maxy: int, miny: int) -> float:

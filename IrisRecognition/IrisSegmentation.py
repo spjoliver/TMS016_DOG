@@ -6,16 +6,6 @@ import cv2
 import matplotlib.pyplot as plt
 import skimage as skim
 
-
-def eyelid_scanner():
-    """
-    Generates different eyelid contour masks for a couple of different openness levels of eye
-    and orientation of the eye, i.e. the angle of the eye with respect to the camera.
-    Use this mask the same way as to the iris mask to find eyelid shape.
-    """
-
-    pass
-
 def FastIrisPupilScanner2(
         filename: str,
         plot_print: bool = False,
@@ -40,7 +30,6 @@ def FastIrisPupilScanner2(
     filter_size = 5
 
     img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)#[75:-75, 75:-75]
-    img_shape = img.shape
     lid_img = img.copy().astype(float)/255
     img_use = cv2.GaussianBlur(img, (filter_size, filter_size), 0)
     
@@ -133,14 +122,10 @@ def FastIrisPupilScanner2(
     r_top = 0
     if iris_xy[0]-iris_r < 0:
         iris_mask = iris_mask[-(iris_xy[0]-iris_r):, :]
-        #iris_xy_out = (iris_xy_out[0] + (iris_xy[0]-iris_r), iris_xy_out[1])
-        #pupil_xy_out = (pupil_xy_out[0] + (iris_xy[0]-iris_r), pupil_xy_out[1])
         r_top = -(iris_xy[0]-iris_r)
         full_iris = False
     if iris_xy[1]-iris_r < 0:
         iris_mask = iris_mask[:, -(iris_xy[1]-iris_r):]
-        #iris_xy_out = (iris_xy_out[0], iris_xy_out[1] + (iris_xy[1]-iris_r))
-        #pupil_xy_out = (pupil_xy_out[0], pupil_xy_out[1] + (iris_xy[1]-iris_r))
         full_iris = False
 
     if iris_xy[0]+iris_r + 1 > edges.shape[0]:
@@ -156,9 +141,9 @@ def FastIrisPupilScanner2(
     
     iris_xy_out = (iris_xy_out[0] - max(iris_xy[0]-iris_r, 0), iris_xy_out[1] - max(iris_xy[1]-iris_r, 0))
     pupil_xy_out = (pupil_xy_out[0] - max(iris_xy[0]-iris_r, 0), pupil_xy_out[1] - max(iris_xy[1]-iris_r, 0))
-    ## Find eyelid contour
 
-    # upper eyelid
+
+    ## Find eyelid contours
 
     lid_img = img.astype(float)/255
     lid_img = lid_img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
@@ -214,8 +199,6 @@ def FastIrisPupilScanner2(
                                         n_angles=15,
                                     )
     
-  
-
     rr, cc = skim.draw.ellipse_perimeter(rposmax, pupil_xy_out[1], rmax, int(iris_r*1.5), orientation=amx, shape=lid_img.shape)
     rr_lower = rr[rr > rposmax]
     cc_lower = cc[rr > rposmax]
@@ -465,11 +448,6 @@ def FastIrisPupilScanner(
         "usefull_eye": iris_img
     }
 
-def get_upper_eyelid(img: np.ndarray, iris_r: int, pupil_r: int, pupil_xy: tuple, plot_print: bool=False) -> np.ndarray:
-
-    #upper_eyelid = img[]
-    pass
-    
 
 def circle_mask(r, xmax: int, ymax: int, x0r: int, y0r: int, lateral: bool=False) -> np.ndarray:
     circle = np.zeros((r + 1, r + 1)).astype(bool)
@@ -555,6 +533,7 @@ def drLineIntegralMultiEyeLid(img: np.ndarray, c: int, rvec: np.ndarray, radius:
         nan_in = nan_in or nan
     
     if nan_in:
+        # ugly but got some weird error one time so now this is it.
         try:
             mask = np.isnan(lint)
             lint[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), lint[~mask])
@@ -592,6 +571,7 @@ def FindEyeLidEdge(
             radiusmax = int(pupil_rpos * 3)
         else:
             radiusmax = int(pupil_rpos * 3.2)
+            radiusmin = int(pupil_rpos * 1)
 
     radiusvec = np.round(np.linspace(radiusmin, radiusmax , n_radiusjumps)).astype(int)
     
@@ -602,6 +582,8 @@ def FindEyeLidEdge(
     rposmaxval = np.zeros((anglevec.shape[0], radiusvec.shape[0]))
     maxblurval = np.zeros((anglevec.shape[0], radiusvec.shape[0]))
 
+    # this is stupid to have, since it is linear, but I started with the
+    # assumption of a quadratic relationship, so I'll keep it for now.
     if upper:
         rmin = (np.array(
         [1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
@@ -675,18 +657,16 @@ def FindEyeLidEdge(
         top_indices = np.argsort(maxblurval)
         rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
         max_rr = rr[rr > rposmax].max()
-        if max_rr - 27 < pupil_rpos + pupil_radius + 5:
+        if max_rr - 50 < pupil_rpos + pupil_radius + 5:
             print("Under eyelid too closse to pupil, search for estimation further away:")
             for i in range(1, top_indices.shape[0]):
-                if max_rr - 27 < pupil_rpos + pupil_radius:
-                    continue
                 top_blur = top_indices[-i]
                 rposmax = int(rposmaxval[top_blur])
                 amx = int(angleval[top_blur])
                 rmax = int(radiusval[top_blur])
                 rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
                 max_rr = rr[rr > rposmax].max()
-                if max_rr - 27 < pupil_rpos + pupil_radius + 5:
+                if max_rr - 50 < pupil_rpos + pupil_radius + 5:
                     continue
                 else:
                     break
@@ -695,9 +675,7 @@ def FindEyeLidEdge(
             amx = int(angleval[maxbluridx])
             rmax = int(radiusval[maxbluridx])
             rposmax = int(rposmaxval[maxbluridx])
-
-    rposmin_opt = int(np.polyval(radii_to_pos_min, rmax))
-    rposmax_opt = int(np.polyval(radii_to_pos_max, rmax))
+    
     if plot:
         img_plt = img.copy()
         rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
@@ -707,9 +685,14 @@ def FindEyeLidEdge(
             img_plt[rr[rr > rposmax], cc[rr > rposmax]] = 0
         plt.imshow(img_plt, cmap='gray')
         plt.show()
-    """
-    amx, rposmax = OptimizeEyeLidEdge(img, upper, rposmin_opt, rposmax_opt, c, rmax, iris_radius, filter_size=3)
 
+    rposmin_opt = int(np.polyval(radii_to_pos_min, rmax))
+    rposmax_opt = int(np.polyval(radii_to_pos_max, rmax))
+
+
+    #amx, rposmax = OptimizeEyeLidEdge(img, upper, rposmin_opt, rposmax_opt, c, rmax, iris_radius, filter_size=3)
+
+    """
     if plot:
         img_plt = img.copy()
         rr, cc = skim.draw.ellipse_perimeter(rposmax, c, rmax, int(iris_radius*1.5), orientation=amx, shape=img.shape)
@@ -742,17 +725,11 @@ def OptimizeEyeLidEdge(img, upper, rposmin, rposmax, c, rmax, iris_radius, filte
     else:
         rposvec = np.arange(rposmin, rposmax + 1, 1)
 
-    rposvec_len = rposvec.shape[0]
-    rposvec_lbound = rposvec[rposvec_len//3]
-    rposvec_lbound_mask = rposvec <= rposvec_lbound
 
     for i, angle in enumerate(arange):
         drLIM = drLineIntegralMultiEyeLid(img, c, rposvec, rmax, iris_radius, angle, upper)
         cgdrLIM = ConvolveGaussiandrLI(drLIM, filter_size=filter_size, sigma=sigma)
-        if not upper:
-            print(cgdrLIM.shape[0])
-            print(rposvec_lbound_mask.shape[0])
-            cgdrLIM[rposvec_lbound_mask[1:]] = -1000
+
         arg_max_blur = np.argmax(cgdrLIM)
         rposmaxval[i] = rposvec[arg_max_blur]
         maxblurval[i] = cgdrLIM[arg_max_blur]
@@ -901,8 +878,7 @@ def EstimateRadius(top_index: list, img: np.ndarray, pupil: bool=True, pupil_rad
         left_datah = img[max(top_index[0] - width//2, 0): top_index[0] + width//2, max(top_index[1] - data_length, 0): top_index[1]]
 
         right_conv = np.abs(np.diff(convolve2d(right_datah, gf, mode="valid"), axis=1))
-        plt.imshow(right_conv,  cmap='gray')
-        plt.show()
+
         right_conv = right_conv
         dist_right = np.median(np.argmax(right_conv, axis=1)) + filter_size
         left_conv = np.abs(np.diff(convolve2d(left_datah, gf, mode="valid"), axis=1))
@@ -922,16 +898,11 @@ def EstimateRadius(top_index: list, img: np.ndarray, pupil: bool=True, pupil_rad
         left_datah = img[max(top_index[0] - width//2, 0): top_index[0] + width//2, max(top_index[1] - data_length - pupile_adder, 0): top_index[1] - pupile_adder]
 
         right_conv = np.abs(np.diff(convolve2d(right_datah, gf, mode="valid"), axis=1))
-        plt.imshow(right_conv,  cmap='gray')
-        plt.show()
         dist_right = np.median(np.argmax(right_conv, axis=1)) + filter_size + pupile_adder
 
         left_conv = np.abs(np.diff(convolve2d(left_datah, gf, mode="valid"), axis=1))
         dist_left = np.median(np.argmax(left_conv, axis=1)) + filter_size + pupile_adder
-        plt.imshow(left_conv,  cmap='gray')
-        plt.show()
-        plt.imshow(left_datah,  cmap='gray')
-        plt.show()
+
         left_conv = left_conv.sum(axis=0)
         
         radius_estimate = (dist_right + dist_left) / 2
@@ -1055,496 +1026,3 @@ def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral
     #LocateEyelids2(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
     
     return pup_xy, pup_r, iris_xy, iris_r
-
-
-def IsolateIris(
-        r: int,
-        pupil_radius: int,
-        x0: int,
-        y0: int,
-        img: np.ndarray,
-    ):
-    eye = img[max(y0 - r, 0):y0 + r + 1, x0 - r:x0 + r + 1]
-    eye_mask = np.zeros_like(eye)
-
-    for i in range(pupil_radius, r):
-        circle, ryup, rydown, rxup, rxdown = circle_mask(i, lateral=False, xmax=img.shape[1], ymax=img.shape[0], x0r=x0, y0r=y0)
-        circle = np.pad(circle, r-i, mode="constant", constant_values=0)
-        eye_mask[circle] = 1
-
-    eye[eye_mask == 0] = 1
-    plt.imshow(eye, cmap="gray")
-    plt.show()
-
-
-def EyelidFitter(
-    r: int,
-    pupil_radius: int,
-    x0: int,
-    y0: int,
-    img: np.ndarray
-    ):
-    eye = img[max(y0 - r, 0):y0 + r + 1, x0 - r:x0 + r + 1]
-    rmin = r
-
-    circle, ryup, rydown, rxup, rxdown = circle_mask(r, lateral=False, xmax=img.shape[1], ymax=img.shape[0], x0r=x0, y0r=y0)
-    print(circle.shape)
-    print(eye.shape)
-    circle_ru = circle[:rmin, rmin:]
-    circle_ru_idx = np.where(circle_ru)
-    circle_ru_idx = np.vstack(circle_ru_idx).T
-    circle_ru_idx[:, 1] += r
-    plt.imshow(eye, cmap="gray")
-    for i in range(circle_ru_idx.shape[0]):
-        plt.plot(circle_ru_idx[i, 1], circle_ru_idx[i, 0], "r+")
-    
-    circle_rl = circle[rmin:, rmin:]
-    circle_rl_idx = np.where(circle_rl)
-    circle_rl_idx = np.vstack(circle_rl_idx).T
-    circle_rl_idx[:, 0] += r
-    circle_rl_idx[:, 1] += r
-
-    circle_ll = circle[rmin:, :rmin + 1]
-    circle_ll_idx = np.where(circle_ll)
-    circle_ll_idx = np.vstack(circle_ll_idx).T
-    circle_ll_idx[:, 0] += r
-
-    circle_lu = circle[:rmin, :rmin + 1]
-    circle_lu_idx = np.where(circle_lu)
-    circle_lu_idx = (np.flip(circle_lu_idx[0], axis=0), np.flip(circle_lu_idx[1], axis=0))
-    circle_lu_idx = np.vstack(circle_lu_idx).T
-
-    circle_lu_idx_use = circle_lu_idx.copy()[30:, :30]
-    print(circle_lu_idx_use.shape)
-    circle_ru_idx_use = circle_ru_idx.copy()[30:, :30]
-    print(circle_ru_idx_use.shape)
-    com_idx = np.arange(25, circle_lu_idx_use.shape[0], 3)
-
-    max_blur = np.zeros((com_idx.shape[0], com_idx.shape[0]))
-    leftidx = np.zeros((com_idx.shape[0], com_idx.shape[0]))
-    rightidx = np.zeros((com_idx.shape[0], com_idx.shape[0]))
-    optymid = np.zeros((com_idx.shape[0], com_idx.shape[0]))
-
-    ymid = np.arange(5, r - pupil_radius - max(r - y0, 0), 3)
-    xmid = r
-    filter_size = 5
-    for ii, i in enumerate(com_idx):
-        for jj, j in enumerate(com_idx):
-            leftidx[ii, jj] = i
-            rightidx[ii, jj] = j
-            x0 = circle_lu_idx_use[i, 1]
-            y0 = circle_lu_idx_use[i, 0]
-            x1 = circle_ru_idx_use[j, 1]
-            y1 = circle_ru_idx_use[j, 0]
-            xeval = np.arange(x0, x1, 1)
-            res1 = drLineIntegralMulti2(eye, x0, y0, x1, y1, xmid, ymid, xeval, maxy=eye.shape[0] - 1, miny=0)
-            res2 = ConvolveGaussiandrLI2(res1, filter_size=filter_size, sigma=0.5)
-            arg_max_blur = np.argmax(res2) + filter_size // 2
-            max_blur[ii, jj] = res2[arg_max_blur]
-            optymid[ii, jj] = ymid[arg_max_blur]
-            max_blur[ii, jj] = np.max(res2)
-    
-
-    max_blur_idx = np.unravel_index(np.argmax(max_blur), max_blur.shape)
-    opt_i = leftidx[max_blur_idx]
-    opt_j = rightidx[max_blur_idx]
-    optymid = optymid[max_blur_idx]
-    left_point = circle_lu_idx_use[int(opt_i), :]
-    right_point = circle_ru_idx_use[int(opt_j), :]
-
-    x = np.array([left_point[1], xmid, right_point[1]])
-    y = np.array([left_point[0], optymid, right_point[0]])
-
-    p = np.polyfit(x, y, 2)
-    x_eval = np.arange(x[0], x[-1], 1)
-    y_eval = np.polyval(p, x_eval)
-
-    plt.imshow(eye, cmap="gray")
-    #for i in range(circle_ru_idx.shape[0]-40):
-    #    plt.plot(circle_ru_idx[i, 1], circle_ru_idx[i, 0], "r+")
-    #    plt.plot(circle_lu_idx[i, 1], circle_lu_idx[i, 0], "g+")
-    plt.plot(x_eval, y_eval, "r-")
-    plt.show()
-
-#def EyeLidMask(x: np.ndarray, y: np.ndarray, x_eval: np.ndarray, maxy: int, miny: int):
-#    
-#    p = np.polyfit(x, y, 2)
-#    y = np.polyval(p, x_eval)
-#    return np.round(y[(y <= maxy) & (y >= miny)]), x_eval[(y <= maxy) & (y >= miny)]
-
-
-def LineIntegral2(img: np.ndarray, x: np.ndarray, y: np.ndarray, x_eval: np.ndarray, maxy: int, miny: int) -> float:
-    y, x_eval = EyeLidMask(x, y, x_eval, maxy, miny)
-    return (img[y.astype(int), x_eval.astype(int)]).sum() / y.shape[0]
-
-
-def drLineIntegralMulti2(img: np.ndarray, x_left: int, y_left: int, x_right: int, y_right: int, xmid: int, ymid: np.ndarray, x_eval: np.ndarray, maxy: int, miny: int) -> np.ndarray:
-    lint = np.zeros_like(ymid)
-    x = np.array([x_left, xmid, x_right])
-    y = np.array([y_left, 0, y_right])
-    for i, ymidi in enumerate(ymid):
-        y[1] = ymidi
-        lint[i] = LineIntegral2(img, x, y, x_eval, maxy, miny)
-    return np.diff(lint)
-
-def ConvolveGaussiandrLI2(drLIM: np.ndarray, filter_size: int=3, sigma: float=1.0) -> np.ndarray:
-
-    gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
-    return np.convolve(drLIM, gf, mode="valid")
-
-
-
-def LocateEyelids2(
-        r: int,
-        pupil_radius: int,
-        x0: int,
-        y0: int,
-        img: np.ndarray
-        ):
-    print(img.shape)
-    print(y0 + r)
-    plt.imshow(img, cmap="gray")
-    plt.plot(x0, y0, "r+")
-    plt.show()
-    if  r > y0:
-        adder = r - y0
-    else:
-        adder = 0
-    eye = img[y0 - r + adder:y0 + r + 1, max(x0 - r, 0):x0 + r + 1]
-    plt.imshow(eye, cmap="gray")
-    plt.plot(2*x0 - r, 2*y0 - r + adder, "r+")
-    plt.show()
-    filter_size = 40
-    width = 5
-    sigma = 0.5
-    gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
-    gf2 = np.tile(gf, (width, 1)).T
-
-    eye_above_pupil = eye[:r - pupil_radius - 10 - adder, :]
-    eyeabp = eye_above_pupil.copy()
-    conv_diff = np.abs(np.diff(convolve2d(eyeabp, gf2, mode="valid"), axis=0))
-    conv_diff_argmax = np.argmax(conv_diff, axis=0) + filter_size
-
-    x = np.arange(conv_diff_argmax.shape[0]) + width
-
-    p = np.polyfit(x, conv_diff_argmax, 2)
-    y = np.polyval(p, x)
-
-    plt.imshow(eye_above_pupil, cmap="gray")
-    plt.plot(x, conv_diff_argmax, "r+")
-    plt.plot(x, y, "g+")
-    plt.show()
-    plt.imshow(eyeabp, cmap="gray")
-    plt.show()
-    plt.imshow(conv_diff, cmap="gray")
-    plt.show()
-
-    eye_below_pupil = eye[r + pupil_radius + 15 + adder:, :]
-    eyeabp = eye_below_pupil.copy()
-    conv_diff = np.abs(np.diff(convolve2d(eyeabp, gf2, mode="valid"), axis=0))
-    plt.imshow(conv_diff, cmap="gray")
-    plt.show()
-    conv_diff_argmax = np.argmax(conv_diff, axis=0) + filter_size
-
-    x = np.arange(conv_diff_argmax.shape[0]) + width
-
-    p = np.polyfit(x, conv_diff_argmax, 2)
-    y = np.polyval(p, x)
-
-    plt.imshow(eye_below_pupil, cmap="gray")
-    plt.plot(x, conv_diff_argmax, "r+")
-    plt.plot(x, y, "g+")
-    plt.show()
-
-def LocateEyelids(
-        r: int,
-        pupil_radius: int,
-        x0: int,
-        y0: int,
-        img: np.ndarray
-        ):
-    eye = img[y0 - r:y0 + r + 1, x0 - r:x0 + r + 1]
-    min_r = 4
-    circle, ryup, rydown, rxup, rxdown = circle_mask(r - min_r, lateral=False, xmax=img.shape[1], ymax=img.shape[0], x0r=x0, y0r=y0)
-    rmin = r - min_r
-    circle_f, ryup, rydown, rxup, rxdown = circle_mask(r, lateral=False, xmax=img.shape[1], ymax=img.shape[0], x0r=x0, y0r=y0)
-
-    circ_res = np.zeros((circle.shape[0], circle.shape[1]))
-
-    filter_size = 15
-    sigma = 0.5
-    gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
-
-        
-    circle_ru = circle[:rmin, rmin:]
-    circle_ru_idx = np.where(circle_ru)
-    circle_ru_idx = np.vstack(circle_ru_idx).T
-    circle_ru_idx[:, 1] += r
-    circle_ru_data = eye[circle_ru_idx[:, 0] + min_r, circle_ru_idx[:, 1] - min_r]
-
-    circle_ru_conv = np.abs(np.diff(convolve(circle_ru_data, gf, mode="valid")))
-    circle_ru_conv_idx = np.argmax(circle_ru_conv) + filter_size + 1
-    #circ_res[:r, :r][circle_ru][filter_size + 1:-filter_size] = circle_ru_conv
-    circle_ru_conv_idx_yx = circle_ru_idx[circle_ru_conv_idx]
-    plt.plot(np.arange(circle_ru_conv.shape[0]), circle_ru_conv)
-    plt.show()
-    print(circle_ru_conv_idx)
-
-    
-    
-    circle_rl = circle[rmin:, rmin:]
-    circle_rl_idx = np.where(circle_rl)
-    circle_rl_idx = np.vstack(circle_rl_idx).T
-    circle_rl_idx[:, 0] += r
-    circle_rl_idx[:, 1] += r
-
-    circle_rl_data = eye[circle_rl_idx[:, 0] - min_r, circle_rl_idx[:, 1] - min_r]
-
-    circle_rl_conv = np.abs(np.diff(convolve(circle_rl_data, gf, mode="valid")))
-    circle_rl_conv_idx = np.argmax(circle_rl_conv) + filter_size + 1
-    circle_rl_conv_idx_yx = circle_rl_idx[circle_rl_conv_idx]
-
-    circle_ll = circle[rmin:, :rmin + 1]
-    circle_ll_idx = np.where(circle_ll)
-    circle_ll_idx = np.vstack(circle_ll_idx).T
-    circle_ll_idx[:, 0] += r
-
-    circle_ll_data = eye[circle_ll_idx[:, 0] - min_r, circle_ll_idx[:, 1] + min_r]
-
-    circle_ll_conv = np.abs(np.diff(convolve(circle_ll_data, gf, mode="valid")))
-    circle_ll_conv_idx = np.argmax(circle_ll_conv) + filter_size + 1
-    circle_ll_conv_idx_yx = circle_ll_idx[circle_ll_conv_idx] 
-
-    circle_lu = circle[:rmin, :rmin + 1]
-    circle_lu_idx = np.where(circle_lu)
-    circle_lu_idx = (np.flip(circle_lu_idx[0], axis=0), np.flip(circle_lu_idx[1], axis=0))
-    circle_lu_idx = np.vstack(circle_lu_idx).T
-
-    circle_lu_data = eye[circle_lu_idx[:, 0] + min_r, circle_lu_idx[:, 1] + min_r]
-
-    circle_lu_conv = np.abs(np.diff(convolve(circle_lu_data, gf, mode="valid")))
-    circle_lu_conv_idx = np.argmax(circle_lu_conv) + filter_size + 1
-    circle_lu_conv_idx_yx = circle_lu_idx[circle_lu_conv_idx]
-
-    right_side_idx = np.vstack([circle_ru_idx, circle_rl_idx ])
-    left_side_idx = np.vstack([circle_lu_idx, circle_ll_idx])
-    full_circle_idx = np.vstack([right_side_idx, left_side_idx])
-    print(full_circle_idx[:, 0].max(), full_circle_idx[:, 0].min(), full_circle_idx[:, 1].max(), full_circle_idx[:, 1].min())
-
-    plt.imshow(eye, cmap="gray", interpolation="none")
-    plt.plot(circle_ru_conv_idx_yx[0], circle_ru_conv_idx_yx[1], "r+")
-    plt.plot(circle_rl_conv_idx_yx[0], circle_rl_conv_idx_yx[1], "r+")
-    plt.plot(circle_ll_conv_idx_yx[0], circle_ll_conv_idx_yx[1], "r+")
-    plt.plot(circle_lu_conv_idx_yx[0], circle_lu_conv_idx_yx[1], "r+")
-    plt.show()
-    
-    print(eye.shape)
-
-
-    rs_c = right_side_idx.shape[0]
-    lr_el = right_side_idx[rs_c//2 + 85:, :]
-    ur_el = right_side_idx[:rs_c//2 + 85, :]
-
-    ls_c = left_side_idx.shape[0]
-    ll_el = left_side_idx[:ls_c//2 - 85, :]
-    ul_el = left_side_idx[ls_c//2 - 85:, :]
-
-    filter_size = 20
-    sigma = 1
-    gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
-
-    # right side
-    lr_el_conv = convolve(eye[lr_el[:, 0], lr_el[:, 1]], gf, mode="valid")
-    lr_el_conv_max = np.argmax(lr_el_conv) + filter_size
-    lr_el_conv_max_idx = lr_el[lr_el_conv_max, :]
-    ur_el_conv = convolve(eye[lr_el[:, 0], lr_el[:, 1]], gf, mode="valid")
-    ur_el_conv_max = np.argmax(ur_el_conv) + filter_size
-    ur_el_conv_max_idx = ur_el[ur_el_conv_max, :]
-    # left side
-    ll_el_conv = convolve(eye[ll_el[:, 0], ll_el[:, 1]], gf, mode="valid")
-    ll_el_conv_max = np.argmax(ll_el_conv) + filter_size
-    ll_el_conv_max_idx = ll_el[ll_el_conv_max, :]
-    ul_el_conv = convolve(eye[ul_el[:, 0], ul_el[:, 1]], gf, mode="valid")
-    ul_el_conv_max = np.argmax(ul_el_conv) + filter_size
-    ul_el_conv_max_idx = ul_el[ul_el_conv_max, :]
-
-    # try something else
-    filter_size = 8
-    sigma = 1
-    gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
-
-    eye_mid = eye[:r - pupil_radius, :]
-    eye_mid_down = eye[r + pupil_radius:, :]
-    eye_mid_true = eye_mid.copy()
-    filter_size3 = 20
-    gf2 = np.tile(gf, (filter_size3, 1)).T
-    gf3 = np.tile(gf, (6, 1)).T
-    gf3[3:, :] = -gf3[3:, :]
-    eye_mid[eye_mid > 0.7] = 0.2
-    eye_mid_down[eye_mid_down > 0.7] = 0.2
-
-    plt.imshow(eye_mid_down, cmap="gray")
-    plt.show()
-
-    eye_mid = cv2.erode(eye_mid, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10, 10)), iterations=2)
-    eye_mid_down = cv2.erode(eye_mid_down, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (6, 6)), iterations=1)
-    eye_mid_conv = np.abs(np.diff(convolve2d(eye_mid, gf2, mode="valid"), axis=0))
-    eye_mid_down_conv = np.abs(np.diff(convolve2d(eye_mid_down, gf2, mode="valid"), axis=0))
-
-
-    print(eye_mid_conv.shape)
-    filter_size2 = 5
-    eye_mid_conv = convolve2d(cv2.dilate(eye_mid_conv, np.ones((filter_size2, filter_size2)), iterations=2), np.ones((filter_size2,filter_size2)), mode="same", fillvalue=0)
-    eye_mid_down_conv = convolve2d(cv2.dilate(eye_mid_down_conv, np.ones((filter_size2, filter_size2)), iterations=1), np.ones((filter_size2,filter_size2)), mode="same", fillvalue=0)
-    plt.imshow(eye_mid_down_conv, cmap="gray")
-    plt.show()
-    if True:
-        plt.imshow(eye, cmap="gray")
-        for i in range(eye_mid_conv.shape[1]):
-            y = np.argmax(eye_mid_conv[:, i]) + filter_size + 5
-            y2 = np.argmax(eye_mid_down_conv[:, i]) + filter_size + 5 + r + 90
-            x = i + filter_size3
-            plt.plot(x, y, "ro")
-            plt.plot(x, y2, "ro")
-        plt.show()
-
-    eye_lid_top_mid = np.median(np.argmax(eye_mid_conv[:, max(r - filter_size3 - 150, 0):r + 150], axis=0) + filter_size + filter_size2)
-    eye_lid_top_right = np.median(np.argmax(eye_mid_conv[:, max(3*r//2 - filter_size3 - 80, 0):3*r//2 + 80], axis=0) + filter_size + filter_size2)
-    eye_lid_top_left = np.median(np.argmax(eye_mid_conv[:, max(r//2 - filter_size3 - 80, 0):r//2 + 80], axis=0) + filter_size + filter_size2)
-
-    eye_lid_bottom_mid = np.median(np.argmax(eye_mid_down_conv[:, max(r - filter_size3 - 80, 0):r + 80], axis=0) + filter_size + filter_size2 + r + 90)
-    eye_lid_bottom_right = np.median(np.argmax(eye_mid_down_conv[:, max(3*r//2 - filter_size3 - 80, 0):3*r//2 + 80], axis=0) + filter_size + filter_size2 + r + 90)
-    eye_lid_bottom_left = np.median(np.argmax(eye_mid_down_conv[:, max(r//2 - filter_size3 - 80, 0):r//2 + 80], axis=0) + filter_size + filter_size2 + r + 90)
-
-    #eye_mid_conv_max = np.argmax(eye_mid_conv.sum(axis=1)) + filter_size
-    eye_mid_top_mid = np.array([eye_lid_top_mid, r])
-    eye_mid_top_right = np.array([eye_lid_top_right, 3*r//2])
-    eye_mid_top_left = np.array([eye_lid_top_left, r//2])
-    top_points = np.vstack([eye_mid_top_mid, eye_mid_top_right, eye_mid_top_left])
-
-    eye_mid_bottom_mid = np.array([eye_lid_bottom_mid, r])
-    eye_mid_bottom_right = np.array([eye_lid_bottom_right, 3*r//2])
-    eye_mid_bottom_left = np.array([eye_lid_bottom_left, r//2])
-    bottom_points = np.vstack([eye_mid_bottom_mid, eye_mid_bottom_right, eye_mid_bottom_left])
-
-    if True:#2*r - eye_mid_bottom_mid[0] > -1:
-        # fit a second order polynomial
-        top_poly = np.polyfit(bottom_points[:, 1], bottom_points[:, 0], 2)
-        points_i = np.arange(r, 2*r)
-        y_lidb1 = np.polyval(top_poly, points_i)
-        y_iris_b = np.argmax(circle[r:, r+1:].astype(int), axis=0) + r
-        #plt.imshow(y, cmap="gray")
-        diff = np.abs(y_lidb1 - y_iris_b)
-        intersection_br = np.argmin(diff)
-        y_br = round(y_iris_b[intersection_br])
-        y_lidb2 = np.polyval(top_poly, np.arange(0, r))
-        diff = np.abs(y_lidb2 - np.flip(y_iris_b, axis=0))
-        intersection_bl = np.argmin(diff)
-        y_bl = round(np.flip(y_iris_b, axis=0)[intersection_bl])
-    
-    if True:#eye_mid_top_mid[0] > 18:
-        # fit a second order polynomial
-        top_poly = np.polyfit(top_points[:, 1], top_points[:, 0], 2)
-        points_i = np.arange(r, 2*r)
-        y_lid1 = np.polyval(top_poly, points_i)
-        y_iris = np.argmax(circle[:r+1, r+1:].astype(int), axis=0)   
-        #plt.imshow(y, cmap="gray")
-        diff = np.abs(y_lid1 - y_iris)
-        intersection_topr = np.argmin(diff)
-        y_topr = round(y_iris[intersection_topr])
-        y_lid2 = np.polyval(top_poly, np.arange(0, r))
-        diff = np.abs(y_lid2 - np.flip(y_iris, axis=0))
-        intersection_topl = np.argmin(diff)
-        y_topl = round(np.flip(y_iris, axis=0)[intersection_topl])
-
-
-
-    
-    if True:
-        plt.imshow(eye, cmap="gray")
-        plt.plot(eye_mid_top_mid[1], eye_mid_top_mid[0], "ro")
-        plt.plot(eye_mid_top_right[1], eye_mid_top_right[0], "ro")
-        plt.plot(eye_mid_top_left[1], eye_mid_top_left[0], "ro")
-        plt.plot(eye_mid_bottom_mid[1], eye_mid_bottom_mid[0], "ro")
-        plt.plot(eye_mid_bottom_right[1], eye_mid_bottom_right[0], "ro")
-        plt.plot(eye_mid_bottom_left[1], eye_mid_bottom_left[0], "ro")
-        plt.plot(intersection_topr + r, y_topr, "go")
-        plt.plot(intersection_topl, y_topl, "go")
-        plt.plot(intersection_br + r, y_br, "go")
-        plt.plot(intersection_bl, y_bl, "go")
-        plt.plot(points_i, y_iris, "g")
-        plt.plot(np.arange(0, r), np.flip(y_iris, axis=0), "g")
-        plt.plot(np.arange(r, 2*r), y_lid1, "r")
-        plt.plot(np.arange(0, r), y_lid2, "r")
-        plt.plot(np.arange(r, 2*r), y_lidb1, "r")
-        plt.plot(np.arange(0, r), y_lidb2, "r")
-        plt.plot(points_i, y_iris_b, "g")
-        plt.plot(np.arange(0, r), np.flip(y_iris_b, axis=0), "g")
-        #plt.legend(["Right lower eyelid", "Right upper eyelid", "Left lower eyelid", "Left upper eyelid"])
-        plt.show()
-
-
-if False:
-    img_use = cv2.imread("IrisRecognition/UTIRIS_infrared/074/074_L/Img_074_L_2_1.bmp").astype(np.double)[: , :, 0] / 255
-
-    FindPupilIris(img_use, filter_size=3, sigma=1.0, lateral=False, plot_img=None)
-    #Optimal location and radius:  
-    #x=592.0
-    #y=333.0
-    #r=267.0
-    #LocateEyelids(
-    #    r=267,
-    #    pupil_radius=30,
-    #    x0=592,
-    #    y0=333,
-    #    img=img_use
-    #)
-
-
-
-
-    
-
-
-if False:
-    import os
-    print(os.getcwd())
-    img_use = cv2.imread("IrisRecognition/UTIRIS_infrared/021/021_R/Img_021_R_5.bmp").astype(np.double)[: , :, 0] / 255
-    plt.imshow(img_use, cmap="gray")
-    plt.show()
-    FindPupilIris(img_use, filter_size=3, sigma=1.0, lateral=False, plot_img=img_use)
-
-
-if False:
-    import glob
-    import skimage as skim
-    infr_img = glob.glob("IrisRecognition/UTIRIS_infrared/*/*/*.bmp")
-
-    from IrisSegmentation import FindEdge, FindEdgeLoss, EstimateRadius
-    rvec = np.arange(42, 160, 1)
-    sigma = 0.5
-    filter_size = 4
-    for img in infr_img[:1]:
-        img = cv2.imread(img, cv2.IMREAD_GRAYSCALE)[90:-90, 90:-90]
-        img_shape = img.shape
-        img_use = cv2.medianBlur(img, 3)
-        edges = cv2.Canny(img_use, 30, 40)
-        plt.imshow(edges, cmap="gray")
-        plt.show()
-        
-        hough_results = skim.transform.hough_circle(edges, rvec)
-
-        ridx, r, c = np.unravel_index(np.argmax(hough_results), hough_results.shape)
-        prmax = rvec[ridx]
-
-        r_estimate_iris = EstimateRadius([r, c], img=img_use, pupil=False, pupil_radius=prmax)
-        print("Estimated iris radius: ", r_estimate_iris)
-        #r_estimate_iris = int(FindEdgeLoss(img, rmin=round(prmax*1.5), rmax=max(round(prmax*3), 290), sigma=sigma, lateral=True, x0=int(c), y0=int(r), return_radius=True))
-        iris_xy, iris_r = FindEdge(img, rmin=int(r_estimate_iris) - 25, rmax=int(r_estimate_iris), search_radius=5, filter_size=filter_size, sigma=sigma, lateral=True, plot_=False, x0=int(r), y0=int(c))
-
-        fig, ax = plt.subplots()
-        ax.imshow(img, cmap="gray")
-        print("Estimated pupil radius: ", prmax)
-        ax.add_patch(plt.Circle((c, r), rvec[ridx], color="r", fill=False))
-        ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
-        plt.show()

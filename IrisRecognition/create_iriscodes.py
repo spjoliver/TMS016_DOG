@@ -7,7 +7,7 @@ $ python3 create_iriscodes.py
 
 import os
 from util import transform_cropped_iris
-from IrisSegmentation import FastIrisPupilScanner
+from IrisSegmentation import FastIrisPupilScanner2
 from iriscode import calculate_iriscode_different_filters
 
 
@@ -21,8 +21,8 @@ def main():
     
 
 
-def create_iriscodes(rootdir, savedir, alphas=[0.4], betas=[2.5], omegas=[4],
-                     code_shape = [8, 8], patch_shape = [15, 15]):
+def create_iriscodes(rootdir, savedir, alphas=[10, 0.4, 0.4], betas=[0.1, 2.5, 2.5], omegas=[4, 4, 2],
+                     code_shape = [8, 16], patch_shape = [30, 30]):
     n_rho_patches = code_shape[0]
     n_theta_patches = code_shape[1]
     rho_psize = patch_shape[0]
@@ -38,9 +38,9 @@ def create_iriscodes(rootdir, savedir, alphas=[0.4], betas=[2.5], omegas=[4],
                 i+=1
                 image_name = os.path.join(subdir, file)
                 try:
-                    out = FastIrisPupilScanner(image_name)
+                    out = FastIrisPupilScanner2(image_name)
                 except IndexError:
-                    print(f"Warning, IndexError in FastIrisPupilScanner for {image_name}")
+                    print(f"Warning, IndexError in FastIrisPupilScanner2 for {image_name}")
                     continue
                 try:
                     transf_image = transform_cropped_iris(out['iris']/255, 

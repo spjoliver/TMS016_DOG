@@ -70,7 +70,7 @@ to adjust to eyelid detection, but I have some other ones that take the non-
 concentric pupil and iris into account that could be added.
 plot : plots the sampling.
 """
-def transform_copped_iris(img, pup_center, pup_r, iris_center, iris_r, theta_res, rho_res,
+def transform_cropped_iris(img, pup_center, pup_r, iris_center, iris_r, theta_res, rho_res,
                   method = "Daug", plot = False):    
     assert(img.ndim == 2)
     if np.max(img) > 1.:

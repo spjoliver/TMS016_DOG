@@ -30,7 +30,10 @@ def FastIrisPupilScanner2(
     filter_size = 5
 
     img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)#[75:-75, 75:-75]
-    lid_img = img.copy().astype(float)/255
+    lid_imgx = img.copy()
+    lid_imgx[lid_imgx > 130] = 255
+    lid_imgx[lid_imgx < 60] = 0
+    lid_imgx = lid_imgx.astype(float)/255
     img_use = cv2.GaussianBlur(img, (filter_size, filter_size), 0)
     
     #edges = cv2.Canny(img_use, 20, 40)#, standard
@@ -88,7 +91,10 @@ def FastIrisPupilScanner2(
             if iris_r > 175:
                 break
         
-
+    lid_imgx = img.copy()
+    lid_imgx[iris_xy[0]:, :][lid_imgx[iris_xy[0]:, :] > 133] = 255
+    lid_imgx[lid_imgx < 60] = 0
+    lid_imgx = lid_imgx.astype(float)/255
 
     iris_xy_out = (iris_xy[0], iris_xy[1])
     pupil_xy_out = (r, c)
@@ -99,6 +105,8 @@ def FastIrisPupilScanner2(
         print("Estimated pupil radius: ", prmax)
         ax.add_patch(plt.Circle((c, r), prmax, color="r", fill=False))
         ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
+        plt.plot(iris_xy[1], iris_xy[0], "r+")
+        plt.plot(c, r, "g+")
         plt.show()
 
     isolated_iris = img.copy()
@@ -146,18 +154,29 @@ def FastIrisPupilScanner2(
     ## Find eyelid contours
 
     lid_img = img.astype(float)/255
+
+    fimg = img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
     lid_img = lid_img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
+    lid_imgx = lid_imgx[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
+    lid_imgx = cv2.GaussianBlur(lid_imgx, (5, 5), 0)
+    lid_imgx[:pupil_xy_out[0], :] = cv2.morphologyEx(lid_imgx[:pupil_xy_out[0], :], cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+    #lid_imgx[:pupil_xy_out[0] - prmax, :] = cv2.morphologyEx(lid_imgx[:pupil_xy_out[0] -prmax, :], cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
     lid_img[lid_img > 0.85] = lid_img.mean()
     pup_mask = skim.morphology.disk(prmax + 2).astype(bool)
     rr, cc = skim.draw.circle_perimeter(pupil_xy_out[0], pupil_xy_out[1], prmax + 5)
     rr_new = rr[rr > pupil_xy_out[0]]
     cc_new = cc[rr > pupil_xy_out[0]]
     lid_img[pupil_xy_out[0] - pup_mask.shape[0]//2:pupil_xy_out[0] + pup_mask.shape[0]//2 + 1, pupil_xy_out[1] - pup_mask.shape[0]//2:pupil_xy_out[1] + pup_mask.shape[0]//2 + 1][pup_mask] = lid_img[rr_new, cc_new].mean()
+
+    lid_imgx[pupil_xy_out[0] - pup_mask.shape[0]//2:pupil_xy_out[0] + pup_mask.shape[0]//2 + 1, pupil_xy_out[1] - pup_mask.shape[0]//2:pupil_xy_out[1] + pup_mask.shape[0]//2 + 1][pup_mask] = lid_imgx[rr_new, cc_new].mean()
+    if plot_print:
+        plt.imshow(lid_imgx, cmap="gray")
+        plt.show()
     #lid_img = cv2.morphologyEx(lid_img, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (4, 4)), iterations=1)
     #lid_img = cv2.morphologyEx(lid_img, cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
 
     amx, rmax, rposmax = FindEyeLidEdge(
-                                        img=lid_img, 
+                                        img=lid_imgx, 
                                         pupil_rpos=pupil_xy_out[0],
                                         c=pupil_xy_out[1],
                                         rposjump=7,
@@ -185,7 +204,7 @@ def FastIrisPupilScanner2(
 
 
     amx, rmax, rposmax= FindEyeLidEdge(
-                                        img=lid_img, 
+                                        img=lid_imgx, 
                                         pupil_rpos=pupil_xy_out[0],
                                         c=pupil_xy_out[1],
                                         rposjump=7,
@@ -213,12 +232,17 @@ def FastIrisPupilScanner2(
 
     isolated_iris[iris_mask == 0] = -1
 
+    
     if plot_print:
-        plt.imshow(usefull_eye, cmap="gray")
-        plt.plot(iris_xy_out[1], iris_xy_out[0], "r+")
-        plt.plot(pupil_xy_out[1], pupil_xy_out[0], "b+")
-        plt.show()
-        plt.imshow(isolated_iris, cmap="gray")
+        fimg = np.dstack([fimg, fimg, fimg])
+        fimg[rr_upper, cc_upper] = [0, 0, 255]
+        fimg[rr_lower, cc_lower] = [0, 0, 255]
+        fig, ax = plt.subplots()
+        ax.imshow(fimg)
+        ax.add_patch(plt.Circle((pupil_xy_out[1], pupil_xy_out[0]), prmax, color="r", fill=False))
+        ax.add_patch(plt.Circle((iris_xy_out[1], iris_xy_out[0]), iris_r, color="g", fill=False))
+        ax.plot(pupil_xy_out[1], pupil_xy_out[0], "r+")
+        ax.plot(iris_xy_out[1], iris_xy_out[0], "g+")
         plt.show()
     
     return {
@@ -305,6 +329,8 @@ def FastIrisPupilScanner(
         print("Estimated pupil radius: ", prmax)
         ax.add_patch(plt.Circle((c, r), prmax, color="r", fill=False))
         ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
+        plt.plot(iris_xy[1], iris_xy[0], "r+")
+        plt.plot(c, r, "g+")
         plt.show()
 
     iris_xy_out = (iris_xy[0], iris_xy[1])
@@ -433,10 +459,15 @@ def FastIrisPupilScanner(
     # edge_mask might have detected pixels not belonging to the iris, set them to -1
     #usefull_eye[edge_mask == True] = -1
     if plot_print:
+        #plt.imshow(usefull_eye, cmap="gray")
+        #plt.plot(iris_xy_out[1], iris_xy_out[0], "r+")
+        #plt.plot(pupil_xy_out[1], pupil_xy_out[0], "b+")
+        #plt.show()
         plt.imshow(usefull_eye, cmap="gray")
-        plt.plot(iris_xy_out[1], iris_xy_out[0], "r+")
-        plt.plot(pupil_xy_out[1], pupil_xy_out[0], "b+")
-        plt.show()
+        ax.add_patch(plt.Circle((c, r), prmax, color="r", fill=False))
+        ax.add_patch(plt.Circle((iris_xy[1], iris_xy[0]), iris_r, color="g", fill=False))
+        plt.plot(iris_xy[1], iris_xy[0], "r+")
+        plt.plot(c, r, "g+")
     
     return {
         "iris": usefull_eye,
@@ -1026,3 +1057,4 @@ def FindPupilIris(img: np.ndarray, filter_size: int=3, sigma: float=1.0, lateral
     #LocateEyelids2(iris_r, pup_r, iris_xy[1], iris_xy[0], img)
     
     return pup_xy, pup_r, iris_xy, iris_r
+

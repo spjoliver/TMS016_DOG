@@ -215,7 +215,7 @@ def FindEyeLids(
         lower_pct = lid_imgx[-int(prmax*0.7):, :].sum() / (iris_mask[-int(prmax*0.7):, :].sum() + 1)
         if upper_pct < 0.05:
             do_upper = False
-        if lower_pct < 0.1:
+        if lower_pct < 0.14:
             do_lower = False
 
     if do_upper:
@@ -311,7 +311,10 @@ def FindEyeLidEdge(
             radiusmin = int(pupil_rpos * 0.2)
     
     # Set radius vector to iterate over
-    radiusvec = np.round(np.linspace(pupil_radius//2, img.shape[0]*1.3, n_radiusjumps)).astype(int)
+    if upper:
+        radiusvec = np.round(np.linspace(pupil_radius//2, img.shape[0]*1.3, n_radiusjumps)).astype(int)
+    else:
+        radiusvec = np.round(np.linspace(pupil_radius//2, img.shape[0]*0.65, n_radiusjumps)).astype(int)
     
     # Set angle vector to iterate over
     anglevec = np.linspace(anglemin, anglemax, n_angles)
@@ -586,7 +589,7 @@ def ConvolveGaussiandrLI(drLIM: np.ndarray, filter_size: int=3, sigma: float=1.0
     try:
         return np.convolve(drLIM, gf, mode="same")
     except:
-        return np.ndarray([-10**8])
+        return np.array([-10**8])
     
 def circle_mask(r, xmax: int, ymax: int, x0r: int, y0r: int, lateral: bool=False) -> np.ndarray:
     """
@@ -730,7 +733,7 @@ def SobelEyelid(img: np.ndarray, iris_mask: np.ndarray, prmax: int) -> np.ndarra
     iris_donut = iris_mask.copy()
     iris_donut[big_pupil_mask == 1] = 0
     # lower eyelid can be a bit lighter
-    sobel_magnitude[img.shape[0]//2:, :][iris_donut[img.shape[0]//2:, :]] = cv2.dilate(sobel_magnitude[img.shape[0]//2:, :], np.ones((13,13), np.uint8), iterations=1)[iris_donut[img.shape[0]//2:, :]]
+    #sobel_magnitude[img.shape[0]//2:, :][iris_donut[img.shape[0]//2:, :]] = cv2.dilate(sobel_magnitude[img.shape[0]//2:, :], np.ones((5, 5), np.uint8), iterations=1)[iris_donut[img.shape[0]//2:, :]]
 
     sobel_magnitude[iris_mask == 0] = 0
     return sobel_magnitude.astype(np.float64)/255

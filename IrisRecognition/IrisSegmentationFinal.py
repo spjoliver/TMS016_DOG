@@ -7,10 +7,12 @@ import matplotlib.pyplot as plt
 import skimage as skim
 from scipy.interpolate import interp1d
 from typing import Union, Tuple
+from skimage.exposure import exposure
 
 def FastIrisPupilScanner2(
         filename: str,
         plot_print: bool = False,
+        sobel_eyelid: bool = True,
         dilate_eyelid_threshold: bool = False,
     ) -> dict:
     """
@@ -25,9 +27,6 @@ def FastIrisPupilScanner2(
             "full_iris": boolean, True if the full iris could be extracted from the original image
 
     """
-
-
-    
 
     # parameters for blur and convolution
     sigma = 0.5
@@ -128,6 +127,7 @@ def FastIrisPupilScanner2(
         pupil_xy_out=pupil_xy_out,
         prmax=prmax,
         plot_print=plot_print,
+        sobel=sobel_eyelid,
         dilate_eyelid_threshold=dilate_eyelid_threshold
     )
  
@@ -172,6 +172,7 @@ def FindEyeLids(
         pupil_xy_out: Tuple[int, int],
         prmax: int,
         plot_print: bool = False,
+        sobel: bool = True,
         dilate_eyelid_threshold: bool = False
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -181,36 +182,17 @@ def FindEyeLids(
     rr stands for the row index of the contour, u and l stand for upper and lower eyelid, respectively
     cc stands for the column index of the contour
     """
-    # copy image and perform thresholding
-    lid_imgx = img.copy()
-    lid_imgx[iris_xy[0]:, :][lid_imgx[iris_xy[0]:, :] > 130] = 255
-    # The darker pixels are set to 255 since they often are around the upper eyelid
-    # this often makes it so that the derivative is stronger when coming from below,
-    # i.e. from the pupil and iris, which is what we want.
-    # Otherwise, the derivative is stronger when coming from above, i.e. from the eyelid,
-    # which could mess estimations up.
-    lid_imgx[lid_imgx < 60] = 255
-    # convert to float and normalize
-    lid_imgx = lid_imgx.astype(float)/255
+    if not sobel:
+        lid_imgx = ThresholdEyelid(img, iris_xy, iris_r, pupil_xy_out, prmax, dilate_eyelid_threshold)
+    else:
+        lid_imgx = SobelEyelid(img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1])
 
-    # Now select only iris block region of eye and blur
-    lid_imgx = lid_imgx[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
-    lid_imgx = cv2.GaussianBlur(lid_imgx, (5, 5), 0)
     
-    if dilate_eyelid_threshold:
-        # Could add other morphological operations here, but did not seem optimal during testing, not even this dilation
-        lid_imgx[:pupil_xy_out[0], :] = cv2.morphologyEx(lid_imgx[:pupil_xy_out[0], :], cv2.MORPH_DILATE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
-    pup_mask = skim.morphology.disk(prmax).astype(bool)
-    rr, cc = skim.draw.circle_perimeter(pupil_xy_out[0], pupil_xy_out[1], prmax + 5)
-    rr_new = rr[rr > pupil_xy_out[0]]
-    cc_new = cc[rr > pupil_xy_out[0]]
-
-    # set pupil region to mean of surrounding pixels outside in the iris region (hopefully)
-    lid_imgx[pupil_xy_out[0] - pup_mask.shape[0]//2:pupil_xy_out[0] + pup_mask.shape[0]//2 + 1, pupil_xy_out[1] - pup_mask.shape[0]//2:pupil_xy_out[1] + pup_mask.shape[0]//2 + 1][pup_mask] = lid_imgx[rr_new, cc_new].mean()
     if plot_print:
         plt.imshow(lid_imgx, cmap="gray")
         plt.show()
     # Find upper eyelid
+    
     amx, rmax, rposmax = FindEyeLidEdge(
                                     img=lid_imgx, 
                                     pupil_rpos=pupil_xy_out[0],
@@ -291,8 +273,8 @@ def FindEyeLidEdge(
             radiusmax = int(pupil_rpos * 3)
         else:
             # Lower eyelid can be further away from pupil than upper eyelid and also have a larger radius
-            radiusmax = int(pupil_rpos * 3.2)
-            radiusmin = int(pupil_rpos * 1)
+            radiusmax = int(pupil_rpos * 3.5)
+            radiusmin = int(pupil_rpos * 1.3)
     
     # Set radius vector to iterate over
     radiusvec = np.round(np.linspace(pupil_radius//2, img.shape[0]*1.3, n_radiusjumps)).astype(int)
@@ -680,3 +662,51 @@ def FindEdge(
         print("Optimal location and radius: ", f"\nx={opt_xy[1]}\ny={opt_xy[0]}\nr={opt_r}")
     opt_xy = (int(opt_xy[0]), int(opt_xy[1]))
     return opt_xy, int(opt_r)
+
+
+def SobelEyelid(img: np.ndarray) -> np.ndarray:
+
+    blur = cv2.GaussianBlur(img, (0,0), 1.3, 1.3)
+
+    sobely = cv2.Sobel(blur,cv2.CV_64F,0,1,ksize=3)
+
+    sobely2 = cv2.multiply(sobely,sobely)
+
+    sobel_magnitude = cv2.sqrt(sobely2)
+
+    # normalize to range 0 to 255 and clip negatives
+    sobel_magnitude = exposure.rescale_intensity(sobel_magnitude, in_range='image', out_range=(0,255)).clip(0,255).astype(np.uint8)
+    sobel_magnitude[sobel_magnitude > 5] = 255
+    sobel_magnitude[img.shape[0]//2:, :][sobel_magnitude[img.shape[0]//2:, :] > 3] = 255
+    return sobel_magnitude.astype(np.float64)/255
+
+def ThresholdEyelid(img: np.ndarray, iris_xy: list, iris_r: int, pupil_xy_out: list, prmax: int, dilate_eyelid_threshold: bool) -> np.ndarray:
+
+    # copy image and perform thresholding
+    lid_imgx = img.copy()
+    lid_imgx[iris_xy[0]:, :][lid_imgx[iris_xy[0]:, :] > 130] = 255
+    # The darker pixels are set to 255 since they often are around the upper eyelid
+    # this often makes it so that the derivative is stronger when coming from below,
+    # i.e. from the pupil and iris, which is what we want.
+    # Otherwise, the derivative is stronger when coming from above, i.e. from the eyelid,
+    # which could mess estimations up.
+    lid_imgx[lid_imgx < 60] = 255
+    # convert to float and normalize
+    lid_imgx = lid_imgx.astype(float)/255
+
+    # Now select only iris block region of eye and blur
+    lid_imgx = lid_imgx[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
+    lid_imgx = cv2.GaussianBlur(lid_imgx, (5, 5), 0)
+    
+    if dilate_eyelid_threshold:
+        # Could add other morphological operations here, but did not seem optimal during testing, not even this dilation
+        lid_imgx[:pupil_xy_out[0], :] = cv2.morphologyEx(lid_imgx[:pupil_xy_out[0], :], cv2.MORPH_DILATE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
+    pup_mask = skim.morphology.disk(prmax).astype(bool)
+    rr, cc = skim.draw.circle_perimeter(pupil_xy_out[0], pupil_xy_out[1], prmax + 5)
+    rr_new = rr[rr > pupil_xy_out[0]]
+    cc_new = cc[rr > pupil_xy_out[0]]
+
+    # set pupil region to mean of surrounding pixels outside in the iris region (hopefully)
+    lid_imgx[pupil_xy_out[0] - pup_mask.shape[0]//2:pupil_xy_out[0] + pup_mask.shape[0]//2 + 1, pupil_xy_out[1] - pup_mask.shape[0]//2:pupil_xy_out[1] + pup_mask.shape[0]//2 + 1][pup_mask] = lid_imgx[rr_new, cc_new].mean()
+
+    return lid_imgx

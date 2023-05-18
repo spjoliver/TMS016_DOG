@@ -634,7 +634,7 @@ def FindEyeLidEdge(
             radiusmax = int(pupil_rpos * 3)
         else:
             radiusmax = int(pupil_rpos * 3.2)
-            radiusmin = int(pupil_rpos * 1)
+            radiusmin = int(pupil_rpos * 1.2)
     
 
     radiusvec = np.round(np.linspace(pupil_radius//2, img.shape[0]*1.3, n_radiusjumps)).astype(int)

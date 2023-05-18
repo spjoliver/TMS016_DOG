@@ -13,10 +13,13 @@ def FastIrisPupilScanner2(
         filename: str,
         plot_print: bool = False,
         sobel_eyelid: bool = True,
-        eyelid_diff: bool = True,
+        eyelid_diff_upper: bool = True,
+        eyelid_diff_lower: bool = True,
         dilate_eyelid_threshold: bool = False,
     ) -> dict:
     """
+    Optimal setting from testing on UTIRIS dataset
+    FastIrisPupilScanner2(img_path, plot_print=True, sobel_eyelid=True, eyelid_diff_upper=True, eyelid_diff_lower=True)
 
     Returns:
         dict: containing the following key-value pairs:
@@ -37,7 +40,7 @@ def FastIrisPupilScanner2(
     img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)#[75:-75, 75:-75]
 
     # rvec defines the radius of the circle to be searched for, pupil's seem to be in this range most of the time in the dataset UTIRIS
-    rvec = np.arange(80, 160, 1)
+    rvec = np.arange(80, 180, 1)
     # Find pupil
     prmax, r, c, hres_left = FindPupil(
         img=img,
@@ -129,17 +132,21 @@ def FastIrisPupilScanner2(
         prmax=prmax,
         plot_print=plot_print,
         sobel=sobel_eyelid,
-        diff=eyelid_diff,
-        dilate_eyelid_threshold=dilate_eyelid_threshold
+        diff_upper=eyelid_diff_upper,
+        diff_lower=eyelid_diff_lower,
+        dilate_eyelid_threshold=dilate_eyelid_threshold,
+        iris_mask=iris_mask,
     )
  
     # set pixels above upper eyelid to -1
-    for r, c in zip(rru, ccu):
-        isolated_iris[:r, c] = -1
+    if not isinstance(rru, bool):
+        for r, c in zip(rru, ccu):
+            isolated_iris[:r, c] = -1
     
     # set pixels below lower eyelid to -1
-    for r, c in zip(rrl, ccl):
-        isolated_iris[r:, c] = -1
+    if not isinstance(rrl, bool):
+        for r, c in zip(rrl, ccl):
+            isolated_iris[r:, c] = -1
     
     # set pixels outside iris to -1
     isolated_iris[iris_mask == 0] = -1
@@ -148,8 +155,10 @@ def FastIrisPupilScanner2(
     if plot_print:
         fimg = img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1]
         fimg = np.dstack([fimg, fimg, fimg])
-        fimg[rru, ccu] = [0, 0, 255]
-        fimg[rrl, ccl] = [0, 0, 255]
+        if not isinstance(rru, bool):
+            fimg[rru, ccu] = [0, 0, 255]
+        if not isinstance(rrl, bool):
+            fimg[rrl, ccl] = [0, 0, 255]
         fig, ax = plt.subplots()
         ax.imshow(fimg)
         ax.add_patch(plt.Circle((pupil_xy_out[1], pupil_xy_out[0]), prmax, color="r", fill=False))
@@ -175,7 +184,9 @@ def FindEyeLids(
         prmax: int,
         plot_print: bool = False,
         sobel: bool = True,
-        diff: bool = True,
+        diff_upper: bool = True,
+        diff_lower: bool = True,
+        iris_mask: np.ndarray = None,
         dilate_eyelid_threshold: bool = False
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -188,61 +199,78 @@ def FindEyeLids(
     if not sobel:
         lid_imgx = ThresholdEyelid(img, iris_xy, iris_r, pupil_xy_out, prmax, dilate_eyelid_threshold)
     else:
-        lid_imgx = SobelEyelid(img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1])
+        lid_imgx = SobelEyelid(img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1], iris_mask, prmax)
+            
 
     
     if plot_print:
         plt.imshow(lid_imgx, cmap="gray")
         plt.show()
     # Find upper eyelid
-    
-    amx, rmax, rposmax = FindEyeLidEdge(
-                                    img=lid_imgx, 
-                                    pupil_rpos=pupil_xy_out[0],
-                                    c=pupil_xy_out[1],
-                                    rposjump=2,
-                                    iris_radius=iris_r,
-                                    pupil_radius=prmax,
-                                    n_radiusjumps=50,
-                                    plot=plot_print,
-                                    upper=True,
-                                    anglemin=-np.pi/6,
-                                    anglemax=np.pi/6,
-                                    n_angles=20,
-                                    diff=diff,
-                                    sigma=0.5
-                                    )
-    # Check if upper eyelid is close to top or not, often needs a shift down from estimations if eyelid is blocking part of iris
-    alpha_u = np.linspace(np.pi, 2*np.pi, 700)
-    rru, ccu = EyeLidMask(pupil_xy_out[1], rposmax, rmax, iris_r, amx, lid_imgx.shape, True, alpha_u)
-    min_rr_upper = rru.min()
-    if min_rr_upper > 10:
-        rru, ccu = EyeLidMask(pupil_xy_out[1], rposmax+20, rmax, iris_r, amx, lid_imgx.shape, True, alpha_u)
+
+    do_upper = True
+    do_lower = True
+    if sobel:
+        upper_pct = lid_imgx[:int(prmax*1.2), :].sum() / (iris_mask[:int(prmax*1.2), :].sum() + 1)
+        lower_pct = lid_imgx[-int(prmax*0.7):, :].sum() / (iris_mask[-int(prmax*0.7):, :].sum() + 1)
+        if upper_pct < 0.05:
+            do_upper = False
+        if lower_pct < 0.1:
+            do_lower = False
+
+    if do_upper:
+        amx, rmax, rposmax = FindEyeLidEdge(
+                                        img=lid_imgx, 
+                                        pupil_rpos=pupil_xy_out[0],
+                                        c=pupil_xy_out[1],
+                                        rposjump=2,
+                                        iris_radius=iris_r,
+                                        pupil_radius=prmax,
+                                        n_radiusjumps=50,
+                                        plot=plot_print,
+                                        upper=True,
+                                        anglemin=-np.pi/6,
+                                        anglemax=np.pi/6,
+                                        n_angles=20,
+                                        diff=diff_upper,
+                                        sigma=0.5
+                                        )
+        # Check if upper eyelid is close to top or not, often needs a shift down from estimations if eyelid is blocking part of iris
+        alpha_u = np.linspace(np.pi, 2*np.pi, 700)
+        rru, ccu = EyeLidMask(pupil_xy_out[1], rposmax, rmax, iris_r, amx, lid_imgx.shape, True, alpha_u)
+        min_rr_upper = rru.min()
+        if min_rr_upper > 10:
+            rru, ccu = EyeLidMask(pupil_xy_out[1], rposmax+20, rmax, iris_r, amx, lid_imgx.shape, True, alpha_u)
+    else:
+        rru, ccu = False, False 
 
     # Find lower eyelid
-    amx, rmax, rposmax= FindEyeLidEdge(
-                                    img=lid_imgx, 
-                                    pupil_rpos=pupil_xy_out[0],
-                                    c=pupil_xy_out[1],
-                                    rposjump=2,
-                                    n_radiusjumps=30,
-                                    iris_radius=iris_r,
-                                    pupil_radius=prmax,
-                                    plot=plot_print,
-                                    upper=False,
-                                    anglemin=-np.pi/6,
-                                    anglemax=np.pi/6,
-                                    n_angles=20,
-                                    diff=diff,
-                                    sigma=0.5
-                                    )
+    if do_lower:
+        amx, rmax, rposmax= FindEyeLidEdge(
+                                        img=lid_imgx, 
+                                        pupil_rpos=pupil_xy_out[0],
+                                        c=pupil_xy_out[1],
+                                        rposjump=2,
+                                        n_radiusjumps=30,
+                                        iris_radius=iris_r,
+                                        pupil_radius=prmax,
+                                        plot=plot_print,
+                                        upper=False,
+                                        anglemin=-np.pi/6,
+                                        anglemax=np.pi/6,
+                                        n_angles=20,
+                                        diff=diff_lower,
+                                        sigma=0.5
+                                        )
     
     # Check if lower eyelid is close to bottom or not, sometimes need to be shifted up for same reason as upper eyelid
-    alpha_l = np.linspace(0, np.pi, 700)
-    rrl, ccl = EyeLidMask(pupil_xy_out[1], rposmax, rmax, iris_r, amx, lid_imgx.shape, False, alpha_l)
-    max_rr_lower = rrl.max()
-    if max_rr_lower < lid_imgx.shape[0] - 30:
+        alpha_l = np.linspace(0, np.pi, 700)
         rrl, ccl = EyeLidMask(pupil_xy_out[1], rposmax, rmax, iris_r, amx, lid_imgx.shape, False, alpha_l)
+        max_rr_lower = rrl.max()
+        if max_rr_lower < lid_imgx.shape[0] - 30:
+            rrl, ccl = EyeLidMask(pupil_xy_out[1], rposmax, rmax, iris_r, amx, lid_imgx.shape, False, alpha_l)
+    else:
+        rrl, ccl = False, False
 
     return rru, ccu, rrl, ccl
 
@@ -279,8 +307,8 @@ def FindEyeLidEdge(
             radiusmax = int(pupil_rpos * 3)
         else:
             # Lower eyelid can be further away from pupil than upper eyelid and also have a larger radius
-            radiusmax = int(pupil_rpos * 3.5)
-            radiusmin = int(pupil_rpos * 1.3)
+            radiusmax = int(pupil_rpos * 0.5)
+            radiusmin = int(pupil_rpos * 0.2)
     
     # Set radius vector to iterate over
     radiusvec = np.round(np.linspace(pupil_radius//2, img.shape[0]*1.3, n_radiusjumps)).astype(int)
@@ -307,7 +335,7 @@ def FindEyeLidEdge(
         get_min_pos = lambda r: int(r + pupil_rpos - pupil_radius//2)
     else:
         get_max_pos = lambda r: img.shape[0] - r
-        get_min_pos = lambda r: int(img.shape[0] - r - pupil_rpos + pupil_radius*1.2)
+        get_min_pos = lambda r: int(img.shape[0] - r - pupil_rpos + pupil_radius*1.7)
 
     # Iterate over radius and angle vectors
     for i, angle in enumerate(anglevec):
@@ -331,7 +359,8 @@ def FindEyeLidEdge(
     angleval = angleval.flatten()
     radiusval = radiusval.flatten()
     maxbluridx = np.argmax(maxblurval)
-    amx = int(angleval[maxbluridx])
+    amx = angleval[maxbluridx]
+    print("Optimal angle: ", amx)
     rmax = int(radiusval[maxbluridx])
     rposmax = int(rposmaxval[maxbluridx])
 
@@ -554,8 +583,11 @@ def ConvolveGaussiandrLI(drLIM: np.ndarray, filter_size: int=3, sigma: float=1.0
     Last step in Daugman's algorithm for estimating iris and/or pupil radius.
     """
     gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
-    return np.convolve(drLIM, gf, mode="same")
-
+    try:
+        return np.convolve(drLIM, gf, mode="same")
+    except:
+        return np.ndarray([-10**8])
+    
 def circle_mask(r, xmax: int, ymax: int, x0r: int, y0r: int, lateral: bool=False) -> np.ndarray:
     """
     Creates a circle mask for a given radius and center coordinates.
@@ -672,7 +704,7 @@ def FindEdge(
     return opt_xy, int(opt_r)
 
 
-def SobelEyelid(img: np.ndarray) -> np.ndarray:
+def SobelEyelid(img: np.ndarray, iris_mask: np.ndarray, prmax: int) -> np.ndarray:
 
     blur = cv2.GaussianBlur(img, (0,0), 1.3, 1.3)
 
@@ -685,7 +717,22 @@ def SobelEyelid(img: np.ndarray) -> np.ndarray:
     # normalize to range 0 to 255 and clip negatives
     sobel_magnitude = exposure.rescale_intensity(sobel_magnitude, in_range='image', out_range=(0,255)).clip(0,255).astype(np.uint8)
     sobel_magnitude[sobel_magnitude > 5] = 255
-    sobel_magnitude[img.shape[0]//2:, :][sobel_magnitude[img.shape[0]//2:, :] > 3] = 255
+    sobel_magnitude[img.shape[0]//2:, :][sobel_magnitude[img.shape[0]//2:, :] > 5] = 255
+
+    bigprad = prmax + prmax//2
+    big_pup = skim.morphology.disk(bigprad)
+    bf1 = (iris_mask.shape[0] - big_pup.shape[0])//2
+    af1 = iris_mask.shape[0] - big_pup.shape[0] - bf1
+    bf2 = (iris_mask.shape[1] - big_pup.shape[1])//2
+    af2 = iris_mask.shape[1] - big_pup.shape[1] - bf2
+    big_pupil_mask = np.pad(big_pup, pad_width=((bf1, af1), (bf2, af2)), mode="constant", constant_values=0)
+
+    iris_donut = iris_mask.copy()
+    iris_donut[big_pupil_mask == 1] = 0
+    # lower eyelid can be a bit lighter
+    sobel_magnitude[img.shape[0]//2:, :][iris_donut[img.shape[0]//2:, :]] = cv2.dilate(sobel_magnitude[img.shape[0]//2:, :], np.ones((13,13), np.uint8), iterations=1)[iris_donut[img.shape[0]//2:, :]]
+
+    sobel_magnitude[iris_mask == 0] = 0
     return sobel_magnitude.astype(np.float64)/255
 
 def ThresholdEyelid(img: np.ndarray, iris_xy: list, iris_r: int, pupil_xy_out: list, prmax: int, dilate_eyelid_threshold: bool) -> np.ndarray:

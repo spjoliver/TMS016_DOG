@@ -189,7 +189,7 @@ def FindEyeLids(
     # i.e. from the pupil and iris, which is what we want.
     # Otherwise, the derivative is stronger when coming from above, i.e. from the eyelid,
     # which could mess estimations up.
-    lid_imgx[lid_imgx < 55] = 255
+    lid_imgx[lid_imgx < 60] = 255
     # convert to float and normalize
     lid_imgx = lid_imgx.astype(float)/255
 

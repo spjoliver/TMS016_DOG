@@ -13,6 +13,7 @@ def FastIrisPupilScanner2(
         filename: str,
         plot_print: bool = False,
         sobel_eyelid: bool = True,
+        eyelid_diff: bool = True,
         dilate_eyelid_threshold: bool = False,
     ) -> dict:
     """
@@ -128,6 +129,7 @@ def FastIrisPupilScanner2(
         prmax=prmax,
         plot_print=plot_print,
         sobel=sobel_eyelid,
+        diff=eyelid_diff,
         dilate_eyelid_threshold=dilate_eyelid_threshold
     )
  
@@ -173,6 +175,7 @@ def FindEyeLids(
         prmax: int,
         plot_print: bool = False,
         sobel: bool = True,
+        diff: bool = True,
         dilate_eyelid_threshold: bool = False
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -206,6 +209,7 @@ def FindEyeLids(
                                     anglemin=-np.pi/6,
                                     anglemax=np.pi/6,
                                     n_angles=20,
+                                    diff=diff,
                                     sigma=0.5
                                     )
     # Check if upper eyelid is close to top or not, often needs a shift down from estimations if eyelid is blocking part of iris
@@ -229,6 +233,7 @@ def FindEyeLids(
                                     anglemin=-np.pi/6,
                                     anglemax=np.pi/6,
                                     n_angles=20,
+                                    diff=diff,
                                     sigma=0.5
                                     )
     
@@ -258,6 +263,7 @@ def FindEyeLidEdge(
         upper: bool=True,
         filter_size: int=3,
         sigma: float=1.0,
+        diff: bool=True,
         plot: bool=False
         ):
     """
@@ -314,7 +320,7 @@ def FindEyeLidEdge(
             rposvec = np.arange(rposmin, rposmax + 1, rposjump)
             angleval[i, j] = angle
             radiusval[i, j] = radius
-            drLIM = drLineIntegralMultiEyeLid(img, c, rposvec, radius, iris_radius, angle, upper, alpha)
+            drLIM = drLineIntegralMultiEyeLid(img, c, rposvec, radius, iris_radius, angle, upper, alpha, diff)
             cgdrLIM = ConvolveGaussiandrLI(drLIM, filter_size=filter_size, sigma=sigma)
             arg_max_blur = np.argmax(cgdrLIM)
             rposmaxval[i, j] = rposvec[arg_max_blur]
@@ -369,7 +375,7 @@ def LineIntegralEyeLid(img: np.ndarray, c: int, r: int, radius: int, iris_radius
         return np.nan, nan
     return (img[rr, cc]).sum() / fsum, nan
 
-def drLineIntegralMultiEyeLid(img: np.ndarray, c: int, rvec: np.ndarray, radius: int, iris_radius: int, angle: float, upper: bool, alpha) -> np.ndarray:
+def drLineIntegralMultiEyeLid(img: np.ndarray, c: int, rvec: np.ndarray, radius: int, iris_radius: int, angle: float, upper: bool, alpha, diff: bool=True) -> np.ndarray:
     """
     Also similar to drLineIntegralMulti, but for eyelid. 
     """
@@ -386,8 +392,10 @@ def drLineIntegralMultiEyeLid(img: np.ndarray, c: int, rvec: np.ndarray, radius:
             lint[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), lint[~mask])
         except:
             pass
-    
-    return np.diff(lint)
+    if diff:
+        return np.diff(lint)
+    else:
+        return lint
 
 
 

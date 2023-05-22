@@ -39,6 +39,11 @@ def FastIrisPupilScanner2(
     # Load image
     img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)#[75:-75, 75:-75]
 
+    if plot_print:
+        plt.imshow(img, cmap="gray")
+        plt.title("Original image")
+        plt.show()
+
     # rvec defines the radius of the circle to be searched for, pupil's seem to be in this range most of the time in the dataset UTIRIS
     rvec = np.arange(80, 180, 1)
     # Find pupil
@@ -200,8 +205,6 @@ def FindEyeLids(
         lid_imgx = ThresholdEyelid(img, iris_xy, iris_r, pupil_xy_out, prmax, dilate_eyelid_threshold)
     else:
         lid_imgx = SobelEyelid(img[max(iris_xy[0]-iris_r, 0):iris_xy[0]+iris_r + 1, max(iris_xy[1]-iris_r, 0):iris_xy[1]+iris_r + 1], iris_mask, prmax)
-            
-
     
     if plot_print:
         plt.imshow(lid_imgx, cmap="gray")
@@ -215,7 +218,7 @@ def FindEyeLids(
         lower_pct = lid_imgx[-int(prmax*0.7):, :].sum() / (iris_mask[-int(prmax*0.7):, :].sum() + 1)
         if upper_pct < 0.05:
             do_upper = False
-        if lower_pct < 0.14:
+        if lower_pct < 0.15:
             do_lower = False
 
     if do_upper:
@@ -485,6 +488,7 @@ def FindPupil(
     edges = cv2.Canny(img_use, 40, 50)
     if plot_print:
         plt.imshow(edges, cmap="gray")
+        plt.title("Canny edge detection on blurred image")
         plt.show()
     
     hough_results = skim.transform.hough_circle(edges, rvec)
@@ -587,7 +591,7 @@ def ConvolveGaussiandrLI(drLIM: np.ndarray, filter_size: int=3, sigma: float=1.0
     """
     gf = np.exp(-(np.arange(filter_size) - filter_size // 2)**2/(2*sigma**2)) / (np.sqrt(2 * np.pi) * sigma)
     try:
-        return np.convolve(drLIM, gf, mode="same")
+        return np.abs(np.convolve(drLIM, gf, mode="same"))
     except:
         return np.array([-10**8])
     

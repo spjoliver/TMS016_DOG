@@ -499,8 +499,12 @@ def FindPupil(
     # Checking if the pupil is too close to the edge of the image, then
     accums, cx, cy, radii = skim.transform.hough_circle_peaks(hough_results, rvec, total_num_peaks=20)
     if edges.shape[1] - (c + prmax) < 45 or edges.shape[0] - (r + prmax) < 45 or (c - prmax) < 45 or (r - prmax) < 45:
+        rvec = np.arange(40, prmax + 20)
+        hough_results = skim.transform.hough_circle(edges, rvec)
+        accums, cx, cy, radii = skim.transform.hough_circle_peaks(hough_results, rvec, total_num_peaks=20)
         count = 0
         for center_y, center_x, radius in zip(cy[1:], cx[1:], radii[1:]):
+            print("re-estimating pupil center and radius")
             count += 1
             r = center_y
             c = center_x

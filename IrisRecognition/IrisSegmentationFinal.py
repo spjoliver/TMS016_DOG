@@ -73,7 +73,7 @@ def FastIrisPupilScanner2(
     # save estimations for ease of use
     iris_xy_out = (iris_xy[0], iris_xy[1])
     pupil_xy_out = (r, c)
-    isolated_iris = img.copy()
+    isolated_iris = img.copy().astype(int)
 
     if plot_print:
         fig, ax = plt.subplots()

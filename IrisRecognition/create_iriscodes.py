@@ -2,12 +2,13 @@
 File that creates the iriscodes from a folder of iris images.
 Simply run with 
 $ python3 create_iriscodes.py
-
+Change resolution of the iris codes by altering the input parameters 
+to the create_iriscodes function.
 """
 
 import os
 from util import transform_cropped_iris
-from IrisSegmentation import FastIrisPupilScanner2
+from IrisSegmentationFinal import FastIrisPupilScanner2
 from iriscode import calculate_iriscode_different_filters
 
 
@@ -18,9 +19,18 @@ SAVEDIR = "iriscodes/"
 def main():
     print("Creating codes.")
     create_iriscodes(ROOTDIR, SAVEDIR)
-    
+    create_iriscodes(ROOTDIR, SAVEDIR, alphas=[0.4, 0.4], betas=[2.5, 2.5], omegas=[4, 2],
+                     code_shape = [8, 16], patch_shape = [30, 30])
 
-
+"""
+Creates iris codes from images in rootdir and saves them into savedir.
+alphas, betas, omegas are parameters to the Gabor wavelet used to
+convolve the cropped iris. They are required to have the same length
+and multiple filters are concatenated as
+   code = [code(alphas[0], betas[0], omegas[0]), code(alphas[1], betas[1], omegas[1]), ...] 
+code_shape is the [rho, phi] dimension of the iriscode.
+patch_shape is the [px_height, px_width] of each patch of the iriscode. 
+"""
 def create_iriscodes(rootdir, savedir, alphas=[10, 0.4, 0.4], betas=[0.1, 2.5, 2.5], omegas=[4, 4, 2],
                      code_shape = [8, 16], patch_shape = [30, 30]):
     n_rho_patches = code_shape[0]

@@ -72,6 +72,9 @@ def create_iriscodes(rootdir, savedir,
                 except IndexError:
                     print(f"Warning, IndexError in transform_copped_iris for {image_name}")
                     continue
+                except Exception:
+                    print("Warning, max iter reached. The image segmentation or normalization probably failed.")
+                    continue
                 
                 code = calculate_iriscode_different_filters(transf_image, 
                                          alphas=alphas, betas=betas, omegas=omegas,

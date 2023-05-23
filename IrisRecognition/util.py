@@ -95,6 +95,114 @@ def transform_cropped_iris(img, pup_center, pup_r, iris_center, iris_r, theta_re
         else:
             return False
     
+    def find_pos_limbus(img, pos_limbus, iris_c, pupil_r, pupil_c):
+        
+        # Direction from iris center to limbus
+        v = pos_limbus - iris_c
+        u = v/np.linalg.norm(v)
+        
+        # Direction from iris center to pupil center
+        diff = pupil_c - iris_c
+        d = np.linalg.norm(diff)
+        
+        if d < 1e-5: # Pupil and iris perfectly aligned
+            pup_bdry_r = pupil_r
+        else:
+            # Finding angle theta between vector to pupil and vector to limbus from iris center.
+            
+            theta = np.arccos(np.clip(np.dot(u, diff) / d, -1., 1.))
+
+            # Finding the pupil boundary w.r.t. the iris center with glorious geometry.
+            a = d * np.cos(theta)
+
+            b = d * np.sin(theta)
+
+            c = np.sqrt(pupil_r**2 - b**2)
+
+            pup_bdry_r = a + c
+        
+
+        hi = pos_limbus
+
+        lo = iris_c + u*pup_bdry_r
+
+        
+
+        dr = np.sqrt(2)*1.1 # This (should) ensure boundary point
+
+        is_outside = True
+        i = 0
+        max_iter = 100
+        while is_outside and i < max_iter:
+            i += 1
+            mid = (hi + lo)*0.5
+
+            if outside(img, mid):
+
+                hi = mid
+            elif outside(img, mid + u*dr):
+
+                return mid
+            else:
+
+                lo = mid
+        raise Exception("Max_iter reached")
+        
+        
+    tranf = np.zeros([rho_res, theta_res])
+    
+    if method == "Daug":        
+        dtheta = 2*np.pi/theta_res
+        thetas = np.arange(0., 2*np.pi, dtheta)
+        #assert(np.abs(thetas[-1] - 2.*np.pi) >1e-5)    
+        rhos = np.linspace(0., 1., rho_res)
+        for j, theta in enumerate(thetas):
+            u = np.array([np.cos(theta), np.sin(theta)])
+
+            pup_center_rev = np.array([pup_center[1], pup_center[0]])
+            pos_pup = pup_center_rev + u*pup_r
+            
+            # There is a high risk that the limbus point is outside of the cropped iris.
+            iris_center_rev = np.array([iris_center[1], iris_center[0]])
+            pos_limbus = iris_center_rev + u*iris_r
+            if outside(img, pos_limbus):
+                pos_limbus = find_pos_limbus(img, pos_limbus, iris_center_rev, pup_r, pup_center_rev)
+
+            x = (1 - rhos)*pos_pup[0] + rhos*pos_limbus[0]
+            y = (1 - rhos)*pos_pup[1] + rhos*pos_limbus[1]
+            if plot:
+                ax.plot(x, y, color="red", lw=0.5)
+            #tranf[:, j] = img[np.flip(to_ind(y)), to_ind(x)]
+            
+            tranf[:, j] = img[to_ind(y), to_ind(x)]
+        return tranf
+
+# This is the old funcion
+"""
+def transform_cropped_iris(img, pup_center, pup_r, iris_center, iris_r, theta_res, rho_res,
+                  method = "Daug", plot = False):    
+    assert(img.ndim == 2)
+    if np.max(img) > 1.:
+        img = img/255.
+    if plot:
+        fig, ax = plt.subplots()
+        ax.imshow(img, cmap="gray", vmin=0., vmax=1.)
+
+    def to_ind(coords):
+        return np.array(np.round(coords), dtype="int32")
+    
+    def outside(img, pos):
+        m, n = np.shape(img)
+        coord = to_ind(pos)
+        if coord[0] < 0 or coord[1] < 0:
+            return True
+        elif coord[1] >= m or coord[0] >= n:
+            return True
+        elif img[coord[1]][coord[0]] < 0.:
+            return True
+        else:
+            return False
+    
     def find_pos_limbus(img, pos, center):
         v = pos - center
         hi = pos
@@ -140,3 +248,4 @@ def transform_cropped_iris(img, pup_center, pup_r, iris_center, iris_r, theta_re
             tranf[:, j] = img[to_ind(y), to_ind(x)]
         return tranf
 
+"""

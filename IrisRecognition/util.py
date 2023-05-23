@@ -53,6 +53,7 @@ def transform_iris(img, pup_center, pup_r, iris_center, iris_r, theta_res, rho_r
                 ax.plot(x, y, color="white", lw=0.5)
             #tranf[:, j] = img[np.flip(to_ind(y)), to_ind(x)]
             tranf[:, j] = img[to_ind(y), to_ind(x)]
+        
         return tranf
 
 
@@ -89,7 +90,7 @@ def transform_cropped_iris(img, pup_center, pup_r, iris_center, iris_r, theta_re
             return True
         elif coord[1] >= m or coord[0] >= n:
             return True
-        elif (img[coord[1]][coord[0]] - 1.)**2 < 1e-5:
+        elif img[coord[1]][coord[0]] < 0.:
             return True
         else:
             return False

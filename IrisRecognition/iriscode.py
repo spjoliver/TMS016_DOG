@@ -46,16 +46,20 @@ def calculate_iris_code(transf_img, theta_psize=15, r_psize=15,
     iriscode = np.zeros([transf_img.shape[0]//r_psize, 
                          transf_img.shape[1]//theta_psize * 2])
     
-    norm_img = (transf_img - np.mean(transf_img))/np.std(transf_img)
+    #Change here!!!
+    #norm_img = (transf_img - np.mean(transf_img))/np.std(transf_img)
+
     # The iriscode is calculated from each patch
     for i in range(transf_img.shape[0]//r_psize):
         for j in range(transf_img.shape[1]//theta_psize):
             pi = i*r_psize
             pj = j*theta_psize
-            patch = norm_img[np.ix_(np.arange(pi, pi+r_psize), np.arange(pj, pj+theta_psize))]
-            h = project_gabor(patch, np.pi, 0.5, omega, alpha, beta)
-            iriscode[i, j*2] = np.real(h)
-            iriscode[i, j*2+1] = np.imag(h)
+            patch = transf_img[np.ix_(np.arange(pi, pi+r_psize), np.arange(pj, pj+theta_psize))]
+            normed_patch = (patch - np.mean(patch))/np.std(patch)
+            h = project_gabor(normed_patch, np.pi, 0.5, omega, alpha, beta)
+            DC = project_gabor(normed_patch, np.pi, 0.5, 0, alpha, beta)
+            iriscode[i, j*2] = np.real(h - DC)
+            iriscode[i, j*2+1] = np.imag(h - DC)
     iriscode[iriscode >= 0] = 1
     iriscode[iriscode < 0] = 0
     return iriscode

@@ -8,6 +8,8 @@ import skimage as skim
 from scipy.interpolate import interp1d
 from typing import Union, Tuple
 from skimage.exposure import exposure
+from scipy.stats import bootstrap
+import glob
 
 def FastIrisPupilScanner2(
         filename: str,
@@ -776,3 +778,38 @@ def ThresholdEyelid(img: np.ndarray, iris_xy: list, iris_r: int, pupil_xy_out: l
     lid_imgx[pupil_xy_out[0] - pup_mask.shape[0]//2:pupil_xy_out[0] + pup_mask.shape[0]//2 + 1, pupil_xy_out[1] - pup_mask.shape[0]//2:pupil_xy_out[1] + pup_mask.shape[0]//2 + 1][pup_mask] = lid_imgx[rr_new, cc_new].mean()
 
     return lid_imgx
+
+
+def get_segmentation_performance_ci():
+    left_eye_res = np.array([1, 2, 1, 2, 1, 1, 1, 1, 1, 3, 1, 3, 4, 3, 1, 1, 1, 1, 4, 4, 1, 1, 1, 4, 1, 3, 1, 2, 3, 1])
+    right_eye_res = np.array([1, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 2, 1, 4, 3, 1, 1, 1, 2, 4, 1, 1, 1, 1, 1, 1, 1, 1, 3, 1])
+
+    left_eye_res_really_good = (left_eye_res == 1).astype(float)
+    left_eye_res_good = (left_eye_res < 3).astype(float)
+
+    right_eye_res_really_good = (right_eye_res == 1).astype(float)
+    right_eye_res_good = (right_eye_res < 3).astype(float)
+
+    print("LEFT EYE")
+    for r in np.unique(left_eye_res):
+        print(r, np.sum(left_eye_res == r))
+    print("RIGHT EYE")
+    for r in np.unique(right_eye_res):
+        print(r, np.sum(right_eye_res == r))
+
+
+    print("LEFT EYE, perfect segmenation confidence interval")
+    b_res = bootstrap(data=(left_eye_res_really_good, ), n_resamples=10000, statistic=np.mean, confidence_level=0.95, method="BCa")
+    print(b_res.confidence_interval)
+    print("LEFT EYE, good/well confidence interval")
+    b_res = bootstrap(data=(left_eye_res_good, ), n_resamples=10000, statistic=np.mean, confidence_level=0.95, method="BCa")
+    print(b_res.confidence_interval)
+
+    print("RIGHT EYE, perfect segmentation confidence interval")
+    b_res = bootstrap(data=(right_eye_res_really_good, ), n_resamples=10000, statistic=np.mean, confidence_level=0.95, method="BCa")
+    print(b_res.confidence_interval)
+    print("RIGHT EYE, good confidence interval")
+    b_res = bootstrap(data=(right_eye_res_good, ), n_resamples=10000, statistic=np.mean, confidence_level=0.95, method="BCa")
+    print(b_res.confidence_interval)
+
+    print("Total number of failed segmentations: ", len(glob.glob("UTIRIS_infrared/*/*/*.bmp")) - len(glob.glob("UTIRIS_infrared_segmented/*/*/*.pkl")))

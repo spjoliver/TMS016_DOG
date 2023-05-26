@@ -61,3 +61,24 @@ def shifted_hamming_all_values(a, b):
         distances.append(hamming_distance(a, shifted_b))
 
     return distances
+
+
+
+
+def shifted_hamming_all_values_increments(a, b):
+    # Function to calculate Hamming distance
+    def hamming_distance(a, b):
+        return np.count_nonzero(a != b)
+    
+    original_shape = a.shape  # Save original shape
+    cols = original_shape[1]  # Number of columns
+
+    a = a.ravel()  # Flatten a
+    b = b.ravel()  # Flatten b
+
+    distances = []
+    for i in range(original_shape[0]):  # for each row
+        shifted_b = np.roll(b.reshape(original_shape), shift=i*cols).ravel()  # shift elements of b by i rows and flatten again
+        distances.append(hamming_distance(a, shifted_b))
+
+    return distances
